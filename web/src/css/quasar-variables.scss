@@ -1,0 +1,23 @@
+// Quasar 品牌变量（亮 / 暗两种主题共用；运行时以 --q-primary 等 CSS 变量暴露）
+$primary: #3d63f5;
+$secondary: #0ea5a4;
+$accent: #8b5cf6;
+
+$dark: #1b1f27;
+$dark-page: #0f1218;
+
+$positive: #16a34a;
+$negative: #e5484d;
+$info: #0ea5e9;
+$warning: #f59e0b;
+
+$generic-border-radius: 10px;
+$button-border-radius: 10px;
+
+$typography-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', 'Noto Sans CJK SC', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+// 断点：< 1024px 使用移动端布局（$q.screen.lt.md）
+$breakpoint-xs: 599px;
+$breakpoint-sm: 1023px;
+$breakpoint-md: 1439px;
+$breakpoint-lg: 1919px;

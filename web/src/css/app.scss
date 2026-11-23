@@ -1,0 +1,389 @@
+/*
+ * 全局样式与主题变量。
+ * 规则：自定义区域只使用下面的 CSS 变量，不要写死颜色，保证亮 / 暗两种主题都可用。
+ * Quasar 会给 body 加 body--light / body--dark 类，主题切换由 Dark 插件驱动。
+ */
+
+:root {
+  --app-radius: 14px;
+  --app-radius-sm: 10px;
+  --app-header-h: 56px;
+  --app-tabbar-h: 58px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+
+body.body--light {
+  --app-bg: #f4f6fa;
+  --app-surface: #ffffff;
+  --app-surface-2: #f3f5f9;
+  --app-surface-3: #e9edf4;
+  --app-border: rgba(15, 23, 42, 0.09);
+  --app-border-strong: rgba(15, 23, 42, 0.16);
+  --app-text: #18202e;
+  --app-text-2: #5b6576;
+  --app-text-3: #8a93a3;
+  --app-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 16px rgba(15, 23, 42, 0.05);
+  --app-overlay: rgba(15, 23, 42, 0.04);
+  --app-selected: color-mix(in srgb, var(--q-primary) 9%, transparent);
+  --app-code-bg: #eef1f6;
+  color-scheme: light;
+}
+
+body.body--dark {
+  --app-bg: #0f1218;
+  --app-surface: #1b1f27;
+  --app-surface-2: #222731;
+  --app-surface-3: #2b313d;
+  --app-border: rgba(255, 255, 255, 0.08);
+  --app-border-strong: rgba(255, 255, 255, 0.16);
+  --app-text: #e7eaf0;
+  --app-text-2: #a3abb9;
+  --app-text-3: #737c8c;
+  --app-shadow: 0 1px 2px rgba(0, 0, 0, 0.3), 0 6px 20px rgba(0, 0, 0, 0.25);
+  --app-overlay: rgba(255, 255, 255, 0.05);
+  --app-selected: color-mix(in srgb, var(--q-primary) 18%, transparent);
+  --app-code-bg: #262b35;
+  color-scheme: dark;
+}
+
+html,
+body {
+  background: var(--app-bg);
+  color: var(--app-text);
+  -webkit-tap-highlight-color: transparent;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  overscroll-behavior-y: none;
+}
+
+.q-layout {
+  min-height: 100vh;
+  min-height: 100dvh !important;
+}
+
+/* 最大化对话框使用动态视口高度（iOS 地址栏伸缩） */
+.q-dialog__inner--maximized > div {
+  height: 100vh;
+  height: 100dvh !important;
+  max-height: 100dvh !important;
+}
+
+.text-muted {
+  color: var(--app-text-2);
+}
+.text-faint {
+  color: var(--app-text-3);
+}
+
+/* ---------- 卡片 / 面板 ---------- */
+.app-card {
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+  color: var(--app-text);
+}
+
+.app-page {
+  padding: 24px 28px 32px;
+  max-width: 1440px;
+  margin: 0 auto;
+}
+
+.app-page-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+
+  h1 {
+    margin: 0;
+    font-size: 22px;
+    line-height: 1.3;
+    font-weight: 650;
+    letter-spacing: 0;
+  }
+  .sub {
+    color: var(--app-text-2);
+    font-size: 13px;
+  }
+}
+
+.section-title {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+@media (max-width: 1023px) {
+  .app-page {
+    padding: 12px 12px calc(24px + var(--safe-bottom));
+  }
+}
+
+/* ---------- 状态小标签 ---------- */
+.soft-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 20px;
+  font-weight: 550;
+  white-space: nowrap;
+  background: var(--app-surface-3);
+  color: var(--app-text-2);
+}
+.soft-chip::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.soft-chip.no-dot::before {
+  display: none;
+}
+.soft-chip--positive {
+  background: color-mix(in srgb, var(--q-positive) 15%, transparent);
+  color: var(--q-positive);
+}
+.soft-chip--negative {
+  background: color-mix(in srgb, var(--q-negative) 15%, transparent);
+  color: var(--q-negative);
+}
+.soft-chip--warning {
+  background: color-mix(in srgb, var(--q-warning) 18%, transparent);
+  color: color-mix(in srgb, var(--q-warning) 80%, var(--app-text));
+}
+.soft-chip--info {
+  background: color-mix(in srgb, var(--q-info) 15%, transparent);
+  color: var(--q-info);
+}
+.soft-chip--primary {
+  background: color-mix(in srgb, var(--q-primary) 14%, transparent);
+  color: var(--q-primary);
+}
+.soft-chip--grey {
+  background: var(--app-surface-3);
+  color: var(--app-text-2);
+}
+
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 20px;
+  background: var(--app-surface-2);
+  color: var(--app-text-2);
+  border: 1px solid var(--app-border);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- 空状态 ---------- */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 48px 16px;
+  text-align: center;
+  color: var(--app-text-2);
+
+  .empty-icon {
+    width: 64px;
+    height: 64px;
+    border-radius: 20px;
+    display: grid;
+    place-items: center;
+    background: var(--app-surface-2);
+    color: var(--q-primary);
+  }
+  h3 {
+    margin: 4px 0 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--app-text);
+  }
+  p {
+    margin: 0;
+    font-size: 13px;
+  }
+}
+
+/* ---------- 表单 ---------- */
+.field-label {
+  font-size: 13px;
+  font-weight: 550;
+  color: var(--app-text-2);
+  margin-bottom: 6px;
+}
+.field-hint {
+  font-size: 12px;
+  color: var(--app-text-3);
+  margin-top: 4px;
+}
+
+/* 移动端（< 1024px）：输入框字号 ≥ 16px，防止 iOS 自动放大 */
+@media (max-width: 1023px) {
+  .q-field__native,
+  .q-field__input,
+  .q-field__prefix,
+  .q-field__suffix,
+  textarea,
+  input,
+  select,
+  .ProseMirror {
+    font-size: 16px !important;
+  }
+
+  .q-btn.touch-44 {
+    min-width: 44px;
+    min-height: 44px;
+  }
+}
+
+/* 触控目标 ≥ 44px */
+.touch-44 {
+  min-width: 44px;
+  min-height: 44px;
+}
+
+/* 编辑对话框 */
+.editor-card {
+  display: flex;
+  flex-direction: column;
+  background: var(--app-surface);
+  color: var(--app-text);
+}
+.editor-card .editor-head {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 6px 12px;
+  padding-top: calc(6px + var(--safe-top));
+  background: var(--app-surface);
+  border-bottom: 1px solid var(--app-border);
+
+  .editor-title {
+    flex: 1;
+    font-size: 17px;
+    font-weight: 600;
+    text-align: left;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+}
+.editor-card .editor-body {
+  flex: 1;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 20px 24px;
+  scroll-padding-bottom: 120px;
+}
+.editor-card .editor-foot {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--app-border);
+  background: var(--app-surface);
+}
+@media (max-width: 1023px) {
+  .editor-card .editor-body {
+    padding: 14px 14px calc(28px + var(--safe-bottom));
+  }
+  .editor-card .editor-head .editor-title {
+    text-align: center;
+  }
+}
+
+/* PC 右侧抽屉式对话框：清除 Quasar 默认的 24px 弹窗内边距，避免底栏被裁切 */
+.side-dialog .q-dialog__inner--right {
+  padding: 0 !important;
+}
+.side-dialog .q-dialog__inner--right > div,
+.side-dialog .q-dialog__inner--right > .q-card {
+  width: 640px;
+  max-width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  max-height: 100dvh !important;
+  border-radius: 0 !important;
+}
+
+/* 底部批量操作栏（移动端） */
+.mobile-batch-bar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  z-index: 2001;
+  bottom: 0;
+  padding: 8px calc(8px + var(--safe-right)) calc(8px + var(--safe-bottom)) calc(8px + var(--safe-left));
+  background: var(--app-surface);
+  border-top: 1px solid var(--app-border);
+  box-shadow: 0 -6px 18px rgba(0, 0, 0, 0.08);
+}
+
+/* 富文本内容展示 */
+.rich-content {
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  p {
+    margin: 0 0 0.5em;
+  }
+  ul,
+  ol {
+    margin: 0 0 0.5em;
+    padding-left: 1.5em;
+  }
+  blockquote {
+    margin: 0 0 0.5em;
+    padding: 2px 0 2px 12px;
+    border-left: 3px solid var(--app-border-strong);
+    color: var(--app-text-2);
+  }
+  a {
+    color: var(--q-primary);
+    text-decoration: underline;
+  }
+}
+
+/* Quasar 表格在两种主题下的统一外观 */
+.app-table.q-table__card {
+  background: var(--app-surface);
+  color: var(--app-text);
+  border: 1px solid var(--app-border);
+  border-radius: var(--app-radius);
+  box-shadow: var(--app-shadow);
+}
+.app-table .q-table thead th {
+  font-weight: 600;
+  color: var(--app-text-2);
+  font-size: 12.5px;
+}
+.app-table .q-table tbody tr.selected td {
+  background: var(--app-selected);
+}
+
+.q-notification__caption {
+  white-space: pre-line;
+}

@@ -1,0 +1,16 @@
+node_modules/
+dist/
+server/public/
+server/data/
+*.db
+*.db-wal
+*.db-shm
+.env
+.env.local
+.env.*.local
+deploy/data/
+deploy/caddy_data/
+deploy/caddy_config/
+coverage/
+*.log
+.DS_Store
