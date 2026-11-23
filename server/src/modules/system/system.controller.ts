@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { Controller, Get, HttpStatus, Inject, Res } from '@nestjs/common';
 import type { Response } from 'express';
 import { Public } from '../../common/decorators';
@@ -9,7 +11,27 @@ import { DeliveriesRepository } from '../deliveries/deliveries.repository';
 import { RemindersRepository } from '../reminders/reminders.repository';
 import { SchedulerService } from '../scheduler/scheduler.service';
 
-const APP_VERSION = '1.0.0';
+function resolveAppVersion(): string {
+  const candidates = [
+    path.resolve(__dirname, '../../../package.json'),
+    path.resolve(__dirname, '../../package.json'),
+    path.resolve(process.cwd(), 'package.json'),
+  ];
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const pkg = JSON.parse(fs.readFileSync(file, 'utf8')) as { version?: unknown };
+      if (typeof pkg.version === 'string' && pkg.version.trim()) {
+        return pkg.version.trim();
+      }
+    } catch {
+      // try next candidate
+    }
+  }
+  return process.env.npm_package_version || '0.0.0';
+}
+
+const APP_VERSION = resolveAppVersion();
 
 @Controller()
 export class SystemController {

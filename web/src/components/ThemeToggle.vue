@@ -5,11 +5,13 @@ import { THEME_OPTIONS, useThemeStore, type ThemeMode } from '@/stores/theme';
 
 const theme = useThemeStore();
 const iconFor: Record<ThemeMode, string> = { light: icons.themeLight, dark: icons.themeDark, auto: icons.themeAuto };
+const buttonIcon = computed(() => (theme.isDark ? icons.themeDark : icons.themeLight));
 const current = computed(() => THEME_OPTIONS.find((o) => o.value === theme.mode)?.label ?? '');
 </script>
 
 <template>
-  <q-btn flat round class="touch-44" :icon="iconFor[theme.mode]" :aria-label="`主题：${current}，点击切换`">
+  <q-btn flat round class="touch-44" :icon="buttonIcon" :aria-label="`切换主题（当前：${current}）`">
+    <q-tooltip>外观主题：{{ current }}</q-tooltip>
     <q-menu anchor="bottom right" self="top right" class="theme-menu" auto-close>
       <q-list style="min-width: 160px">
         <q-item

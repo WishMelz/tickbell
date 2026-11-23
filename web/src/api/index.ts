@@ -1,6 +1,9 @@
 import { request } from './http';
 import type {
   AuthStatus,
+  AutoBackupConfig,
+  AutoBackupFileInfo,
+  AutoBackupView,
   BackupPreview,
   ChannelCreateInput,
   ChannelTestResult,
@@ -86,4 +89,12 @@ export const api = {
   previewBackup: (backup: unknown) => request<BackupPreview>('/backup/preview', { method: 'POST', body: { backup } }),
   restoreBackup: (backup: unknown, password: string, confirmation: string) =>
     request<{ restored: boolean }>('/backup/restore', { method: 'POST', body: { backup, password, confirmation } }),
+  getAutoBackup: () => request<AutoBackupView>('/backup/auto'),
+  updateAutoBackup: (config: AutoBackupConfig) =>
+    request<AutoBackupView>('/backup/auto', { method: 'PUT', body: config }),
+  runAutoBackupNow: () => request<{ file: AutoBackupFileInfo; view: AutoBackupView }>('/backup/auto/run', { method: 'POST' }),
+  readAutoBackupFile: (name: string) =>
+    request<{ name: string; backup: unknown }>(`/backup/auto/files/${enc(name)}`),
+  deleteAutoBackupFile: (name: string) =>
+    request<AutoBackupFileInfo[]>(`/backup/auto/files/${enc(name)}`, { method: 'DELETE' }),
 };

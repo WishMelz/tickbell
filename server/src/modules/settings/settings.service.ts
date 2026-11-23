@@ -8,12 +8,16 @@ export const SETTING_GLOBAL_TIMEZONE = 'global_timezone';
 export const SETTING_SESSION_GENERATION = 'session_generation';
 export const SETTING_AUTH_PASSWORD_HASH = 'auth_password_hash';
 export const SETTING_AUTH_SESSION_SECRET = 'auth_session_secret';
+export const SETTING_AUTO_BACKUP_CONFIG = 'auto_backup_config';
+export const SETTING_AUTO_BACKUP_STATE = 'auto_backup_state';
 
-/** Internal auth/session keys excluded from business backup exports and preserved across restores. */
+/** Internal auth/session/backup-schedule keys excluded from business backup exports and preserved across restores. */
 export const INTERNAL_SETTING_KEYS: ReadonlySet<string> = new Set([
   SETTING_SESSION_GENERATION,
   SETTING_AUTH_PASSWORD_HASH,
   SETTING_AUTH_SESSION_SECRET,
+  SETTING_AUTO_BACKUP_CONFIG,
+  SETTING_AUTO_BACKUP_STATE,
 ]);
 
 interface InheritedReminderRow {

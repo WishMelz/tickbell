@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { AppModule } from '../src/app.module';
 import { configureApp } from '../src/app.setup';
 import { APP_CONFIG, loadAppConfig } from '../src/config/app-config';
+import { BackupService } from '../src/modules/backup/backup.service';
 import { DatabaseService } from '../src/modules/database/database.service';
 import {
   CHANNEL_PROVIDERS,
@@ -590,7 +591,7 @@ describe('TickBell end-to-end integration', () => {
     const deliveries = await request(server).get('/api/deliveries').set('Cookie', newCookie).expect(200);
     expect(deliveries.body.data.items[0].status).toBe('failed');
 
-    // Export v2 and verify format (must exclude internal auth/session settings)
+    // Export v2 and verify slim format (reminders + channels + reminderChannels + settings only; no deliveries/receipts/auth)
     const exported = await request(server)
       .post('/api/backup/export')
       .set('Cookie', newCookie)
@@ -599,10 +600,26 @@ describe('TickBell end-to-end integration', () => {
     expect(exported.body.data.format).toBe('tickbell-full-backup');
     expect(exported.body.data.version).toBe(2);
     expect(exported.body.data.channels).toHaveLength(2);
+    expect(exported.body.data.deliveries).toBeUndefined();
+    expect(exported.body.data.receipts).toBeUndefined();
     const exportedKeys = exported.body.data.settings.map((s: { key: string }) => s.key);
     expect(exportedKeys).not.toContain('auth_password_hash');
     expect(exportedKeys).not.toContain('auth_session_secret');
     expect(exportedKeys).not.toContain('session_generation');
+
+    // Slim v2 export round-trips cleanly through preview & restore
+    const slimPreview = await request(server)
+      .post('/api/backup/preview')
+      .set('Cookie', newCookie)
+      .send({ backup: exported.body.data })
+      .expect(200);
+    expect(slimPreview.body.data.deliveries).toBe(0);
+    expect(slimPreview.body.data.channels).toBe(2);
+    await request(server)
+      .post('/api/backup/restore')
+      .set('Cookie', newCookie)
+      .send({ backup: exported.body.data, password: 'test-admin-password', confirmation: 'RESTORE' })
+      .expect(200);
   });
 
   it('supports zero-env first-run setup, change-password, self-hosted private Bark URL, and preserves auth across restore', async () => {
@@ -863,6 +880,179 @@ describe('TickBell end-to-end integration', () => {
       await scheduler.runTick(t0 + 2_000);
       const after = await request(server).get(`/api/reminders/${minRem.body.data.id}`).set('Cookie', cookie).expect(200);
       expect(Date.parse(after.body.data.nextRunAt)).toBe(t0 + 10 * 60 * 1000);
+    } finally {
+      while (appsToClose.length) {
+        const app = appsToClose.pop();
+        if (app) await app.close();
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('supports configurable auto JSON backup to data/backups with retention pruning, file read/delete, and restore preservation', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tickbell-autobackup-'));
+    const dbPath = path.join(tmpDir, 'tickbell.db');
+    try {
+      const { app, loginCookie } = await createTestApp({ dbPath });
+      const server = app.getHttpServer();
+      const backupService = app.get(BackupService);
+      const cookie = await loginCookie();
+
+      // 1. Default auto-backup state
+      const initial = await request(server).get('/api/backup/auto').set('Cookie', cookie).expect(200);
+      expect(initial.body.data.config).toEqual({
+        enabled: false,
+        time: '03:00',
+        intervalEvery: 1,
+        intervalUnit: 'day',
+        maxFiles: 10,
+      });
+      expect(initial.body.data.files).toEqual([]);
+      expect(initial.body.data.backupDir).toBe(path.join(tmpDir, 'backups'));
+
+      // 2. Reject invalid config
+      await request(server)
+        .put('/api/backup/auto')
+        .set('Cookie', cookie)
+        .send({ enabled: true, time: '25:99', intervalEvery: 1, intervalUnit: 'day', maxFiles: 5 })
+        .expect(400);
+      await request(server)
+        .put('/api/backup/auto')
+        .set('Cookie', cookie)
+        .send({ enabled: true, time: '09:00', intervalEvery: 1, intervalUnit: 'day', maxFiles: 0 })
+        .expect(400);
+
+      // Seed one channel and one reminder so exported backup has real content
+      const ch = await request(server)
+        .post('/api/channels')
+        .set('Cookie', cookie)
+        .send({
+          name: '自动备份渠道',
+          type: 'bark',
+          enabled: true,
+          config: { serverUrl: 'https://api.day.app', deviceKey: 'auto-bak-key' },
+        })
+        .expect(201);
+      await request(server)
+        .post('/api/reminders')
+        .set('Cookie', cookie)
+        .send({
+          title: '自动备份测试提醒',
+          scheduledLocal: '2026-12-01T09:00',
+          timezone: 'Asia/Shanghai',
+          isRepeating: false,
+          repeatEvery: null,
+          repeatUnit: null,
+          channelIds: [ch.body.data.id],
+        })
+        .expect(201);
+
+      // 3. Enable auto-backup every 6 hours anchored at 09:00, maxFiles = 2
+      const updated = await request(server)
+        .put('/api/backup/auto')
+        .set('Cookie', cookie)
+        .send({ enabled: true, time: '09:00', intervalEvery: 6, intervalUnit: 'hour', maxFiles: 2 })
+        .expect(200);
+      expect(updated.body.data.config).toEqual({
+        enabled: true,
+        time: '09:00',
+        intervalEvery: 6,
+        intervalUnit: 'hour',
+        maxFiles: 2,
+      });
+      const scheduledNextRunAt = updated.body.data.state.nextRunAt as string;
+      expect(scheduledNextRunAt).toBeTruthy();
+
+      // 4. Manual run writes file to data/backups and preserves upcoming nextRunAt
+      const manualRun = await request(server).post('/api/backup/auto/run').set('Cookie', cookie).expect(200);
+      const firstFileName = manualRun.body.data.file.name as string;
+      expect(firstFileName).toMatch(/^tickbell-auto-\d{8}-\d{6}\.json$/);
+      expect(manualRun.body.data.view.state.nextRunAt).toBe(scheduledNextRunAt);
+      expect(fs.existsSync(path.join(tmpDir, 'backups', firstFileName))).toBe(true);
+
+      // 5. Trigger two due scheduled runs (6 hours apart) -> 3 total runs, pruned down to maxFiles = 2
+      const firstDueMs = Date.parse(scheduledNextRunAt);
+      expect(backupService.runAutoBackupIfDue(firstDueMs - 1_000)).toBe(false);
+      expect(backupService.runAutoBackupIfDue(firstDueMs + 2_000)).toBe(true);
+      const secondDueMs = Date.parse(backupService.getAutoBackupView().state.nextRunAt!);
+      expect(secondDueMs).toBe(firstDueMs + 6 * 3600_000);
+      expect(backupService.runAutoBackupIfDue(secondDueMs + 2_000)).toBe(true);
+
+      const afterRuns = await request(server).get('/api/backup/auto').set('Cookie', cookie).expect(200);
+      expect(afterRuns.body.data.files).toHaveLength(2);
+      const newestFileName = afterRuns.body.data.files[0].name as string;
+      const diskFiles = fs.readdirSync(path.join(tmpDir, 'backups')).filter((f) => f.startsWith('tickbell-auto-'));
+      expect(diskFiles).toHaveLength(2);
+
+      // 6. Read auto-backup file and verify slim format (no deliveries/receipts, has reminders & channels)
+      const fetched = await request(server)
+        .get(`/api/backup/auto/files/${encodeURIComponent(newestFileName)}`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(fetched.body.data.name).toBe(newestFileName);
+      expect(fetched.body.data.backup.format).toBe('tickbell-full-backup');
+      expect(fetched.body.data.backup.version).toBe(2);
+      expect(fetched.body.data.backup.reminders).toHaveLength(1);
+      expect(fetched.body.data.backup.channels).toHaveLength(1);
+      expect(fetched.body.data.backup.deliveries).toBeUndefined();
+      expect(fetched.body.data.backup.receipts).toBeUndefined();
+
+      // 7. Reject path traversal / invalid filenames
+      await request(server).get('/api/backup/auto/files/..%2Fsecret.json').set('Cookie', cookie).expect(400);
+      await request(server).get('/api/backup/auto/files/not-a-backup.json').set('Cookie', cookie).expect(400);
+      await request(server).delete('/api/backup/auto/files/not-a-backup.json').set('Cookie', cookie).expect(400);
+
+      // 8. Restoring from that backup file preserves auto_backup_config
+      await request(server)
+        .post('/api/backup/restore')
+        .set('Cookie', cookie)
+        .send({ backup: fetched.body.data.backup, password: 'test-admin-password', confirmation: 'RESTORE' })
+        .expect(200);
+      const newCookie = await loginCookie();
+      const afterRestore = await request(server).get('/api/backup/auto').set('Cookie', newCookie).expect(200);
+      expect(afterRestore.body.data.config).toEqual({
+        enabled: true,
+        time: '09:00',
+        intervalEvery: 6,
+        intervalUnit: 'hour',
+        maxFiles: 2,
+      });
+
+      // 9. Delete one auto-backup file
+      const afterDelete = await request(server)
+        .delete(`/api/backup/auto/files/${encodeURIComponent(newestFileName)}`)
+        .set('Cookie', newCookie)
+        .expect(200);
+      expect(afterDelete.body.data).toHaveLength(1);
+      expect(fs.existsSync(path.join(tmpDir, 'backups', newestFileName))).toBe(false);
+
+      // 10. Changing global timezone automatically recalculates nextRunAt and preserves chronological pruning
+      const beforeTzNext = afterRestore.body.data.state.nextRunAt as string;
+      await request(server)
+        .put('/api/settings')
+        .set('Cookie', newCookie)
+        .send({ globalTimezone: 'Asia/Shanghai' })
+        .expect(200);
+      const afterShanghai = await request(server).get('/api/backup/auto').set('Cookie', newCookie).expect(200);
+      expect(afterShanghai.body.data.timezone).toBe('Asia/Shanghai');
+      expect(afterShanghai.body.data.state.nextRunAt).not.toBe(beforeTzNext);
+
+      const tA = Date.UTC(2027, 0, 15, 10, 0, 0); // 18:00 Shanghai
+      const shanghaiRun = backupService.runAutoBackupNow(tA);
+      expect(shanghaiRun.file.name).toBe('tickbell-auto-20270115-180000.json');
+
+      await request(server)
+        .put('/api/settings')
+        .set('Cookie', newCookie)
+        .send({ globalTimezone: 'UTC' })
+        .expect(200);
+      // 10s later in UTC -> filename is 10:00:10 (lexicographically earlier than 18:00:00), must still sort first and survive pruning!
+      const utcRun = backupService.runAutoBackupNow(tA + 10_000);
+      expect(utcRun.file.name).toBe('tickbell-auto-20270115-100010.json');
+      expect(utcRun.view.files).toHaveLength(2);
+      expect(utcRun.view.files[0]?.name).toBe('tickbell-auto-20270115-100010.json');
+      expect(utcRun.view.files[1]?.name).toBe('tickbell-auto-20270115-180000.json');
+      expect(fs.existsSync(path.join(tmpDir, 'backups', utcRun.file.name))).toBe(true);
     } finally {
       while (appsToClose.length) {
         const app = appsToClose.pop();

@@ -204,7 +204,8 @@
 
 ### 明文格式
 - **导入**接受 `format: "tickbell-full-backup"`（`version: 2`）以及兼容格式 `format: "tips-full-backup"`（`version: 1 | 2`）。
-- **导出**为 `format: "tickbell-full-backup", version: 2`。
+- **导出**为 `format: "tickbell-full-backup", version: 2`，仅包含未删除提醒（`reminders`）、通知渠道（`channels`）、渠道关联（`reminderChannels`）与全局时区（`settings`），不包含发送日志（`deliveries`）与去重凭据（`receipts`）。
+- 导入时兼容含或不含 `deliveries` / `receipts` 字段的备份文件。
 
 v2 和 v1 的差异：
 - `deliveries[]` 多一个 `next_retry_at`，`status` 增加 `retrying` / `skipped` 两种取值。
@@ -227,5 +228,33 @@ v2 和 v1 的差异：
 - 恢复后所有提醒都是**暂停**状态；`pending` / `retrying` 的投递改为 `failed`，并注明「恢复时状态未知」。
 - 去重凭据（receipts）和目标库已有的凭据合并。
 - 渠道类型没有注册的，保留原配置，但强制停用。
-- 会话版本号更换，所有旧登录失效，同时清除当前请求的 Cookie；目标环境已设置的管理密码哈希与系统密钥会被保留，不会被备份覆盖（导出时也不包含这些认证信息）。
+- 会话版本号更换，所有旧登录失效，同时清除当前请求的 Cookie；目标环境已设置的管理密码哈希、系统密钥与自动备份配置会被保留，不会被备份覆盖（导出时也不包含这些认证与调度信息）。
 - 备份明文超过 32 MB 返回 413。
+
+### `GET /api/backup/auto`
+获取自动备份配置、运行状态（`lastRunAt` / `lastFile` / `nextRunAt` / `lastError`）、全局时区、备份目录路径以及 `data/backups/` 中按时间倒序排列的自动备份文件列表（`tickbell-auto-YYYYMMDD-HHmmss.json`）。
+
+### `PUT /api/backup/auto`
+更新自动备份配置，请求体：
+```json
+{
+  "enabled": true,
+  "time": "03:00",
+  "intervalEvery": 1,
+  "intervalUnit": "day",
+  "maxFiles": 10
+}
+```
+- `time`：`HH:mm`（按系统全局时区 `global_timezone` 解释）
+- `intervalUnit`：`day`（`1–365`）或 `hour`（`1–720`）
+- `maxFiles`：`1–100`；调小后立即按最新保留规则清理超出份数的最旧自动备份文件
+- 返回更新后的完整 `AutoBackupView` 对象
+
+### `POST /api/backup/auto/run`
+立即按明文导出格式（仅提醒与通知渠道）向 `data/backups/` 写入一份自动备份文件，按 `maxFiles` 清理最旧文件，并返回 `{ file, view }`。手动触发不会跳过尚未到期的下一次定时备份计划。
+
+### `GET /api/backup/auto/files/:name`
+读取 `data/backups/` 中指定自动备份文件的 JSON 内容，返回 `{ name, backup }`（可用于下载或直接载入恢复预览）。文件名必须严格匹配 `^tickbell-auto-\d{8}-\d{6}\.json$`，否则返回 400。
+
+### `DELETE /api/backup/auto/files/:name`
+删除 `data/backups/` 中指定自动备份文件，返回剩余文件列表。文件名不合法返回 400，不存在返回 404。

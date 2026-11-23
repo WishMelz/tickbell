@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { icons } from '@/icons';
+import { GITHUB_REPO_LABEL, GITHUB_REPO_URL } from '@/constants/project';
 import ThemeToggle from '@/components/ThemeToggle.vue';
 import { useResponsive, notifyError } from '@/composables/useResponsive';
 import { confirmDialog } from '@/composables/dialogs';
@@ -72,21 +73,40 @@ async function logout(): Promise<void> {
       :mini-width="72"
       class="app-drawer"
     >
-      <q-list class="nav-list">
-        <q-item
-          v-for="item in nav"
-          :key="item.name"
-          :to="{ name: item.name }"
-          clickable
-          v-ripple
-          class="nav-item"
-          active-class="nav-item--active"
-        >
-          <q-item-section avatar><q-icon :name="item.icon" size="22px" /></q-item-section>
-          <q-item-section>{{ item.label }}</q-item-section>
-          <q-tooltip v-if="mini" anchor="center right" self="center left" :offset="[8, 0]">{{ item.label }}</q-tooltip>
-        </q-item>
-      </q-list>
+      <div class="drawer-inner">
+        <q-list class="nav-list">
+          <q-item
+            v-for="item in nav"
+            :key="item.name"
+            :to="{ name: item.name }"
+            clickable
+            v-ripple
+            class="nav-item"
+            active-class="nav-item--active"
+          >
+            <q-item-section avatar><q-icon :name="item.icon" size="22px" /></q-item-section>
+            <q-item-section>{{ item.label }}</q-item-section>
+            <q-tooltip v-if="mini" anchor="center right" self="center left" :offset="[8, 0]">{{ item.label }}</q-tooltip>
+          </q-item>
+        </q-list>
+
+        <div class="drawer-footer">
+          <q-item
+            tag="a"
+            :href="GITHUB_REPO_URL"
+            target="_blank"
+            rel="noopener noreferrer"
+            clickable
+            v-ripple
+            class="nav-item drawer-github"
+            :aria-label="`GitHub 仓库 ${GITHUB_REPO_LABEL}`"
+          >
+            <q-item-section avatar><q-icon :name="icons.github" size="20px" /></q-item-section>
+            <q-item-section>GitHub</q-item-section>
+            <q-tooltip anchor="center right" self="center left" :offset="[8, 0]">{{ GITHUB_REPO_LABEL }}</q-tooltip>
+          </q-item>
+        </div>
+      </div>
     </q-drawer>
 
     <q-footer v-if="isMobile && !tabbarHidden" class="app-tabbar">
@@ -152,12 +172,32 @@ async function logout(): Promise<void> {
     background: var(--app-surface);
     border-right: 1px solid var(--app-border);
   }
+  :deep(.q-drawer__content) {
+    height: 100%;
+  }
+}
+.drawer-inner {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
 }
 .nav-list {
   padding: 12px 10px;
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.drawer-footer {
+  margin-top: auto;
+  padding: 10px;
+  border-top: 1px solid var(--app-border);
+}
+.drawer-github {
+  text-decoration: none;
+  color: var(--app-text-3);
+  &:hover {
+    color: var(--app-text);
+  }
 }
 .nav-item {
   border-radius: 10px;

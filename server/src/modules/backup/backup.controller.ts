@@ -1,4 +1,4 @@
-import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, Post, Put, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { ValidationError } from '../../common/errors';
 import { AuthThrottlerGuard } from '../auth/auth-throttler.guard';
@@ -18,6 +18,32 @@ export class BackupController {
     if (typeof password !== 'string' || !this.auth.verifyPassword(password)) {
       throw new ValidationError('管理密码不正确');
     }
+  }
+
+  @Get('auto')
+  getAutoBackup() {
+    return this.backup.getAutoBackupView();
+  }
+
+  @Put('auto')
+  updateAutoBackup(@Body() body: unknown) {
+    return this.backup.updateAutoBackupConfig(body);
+  }
+
+  @Post('auto/run')
+  @HttpCode(HttpStatus.OK)
+  runAutoBackupNow() {
+    return this.backup.runAutoBackupNow();
+  }
+
+  @Get('auto/files/:name')
+  readAutoBackupFile(@Param('name') name: string) {
+    return this.backup.readAutoBackupFile(name);
+  }
+
+  @Delete('auto/files/:name')
+  deleteAutoBackupFile(@Param('name') name: string) {
+    return this.backup.deleteAutoBackupFile(name);
   }
 
   @UseGuards(AuthThrottlerGuard)

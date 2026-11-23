@@ -7,6 +7,7 @@ import BackupSection from '@/components/settings/BackupSection.vue';
 import { confirmDialog } from '@/composables/dialogs';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
 import { icons } from '@/icons';
+import { GITHUB_REPO_LABEL, GITHUB_REPO_URL } from '@/constants/project';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { type ThemeMode, useThemeStore } from '@/stores/theme';
@@ -23,6 +24,7 @@ const selectedTimezone = ref<string | null>(settings.globalTimezone);
 const savingTz = ref(false);
 const sysStatus = ref<SystemStatus | null>(null);
 const loadingStatus = ref(false);
+const backupSectionRef = ref<InstanceType<typeof BackupSection> | null>(null);
 
 const currentPassword = ref('');
 const newPassword = ref('');
@@ -38,7 +40,11 @@ const themeModes: Array<{ label: string; value: ThemeMode; icon: string }> = [
 async function loadAll(): Promise<void> {
   loadingStatus.value = true;
   try {
-    const [, status] = await Promise.all([settings.load(true), api.systemStatus()]);
+    const [, status] = await Promise.all([
+      settings.load(true),
+      api.systemStatus(),
+      backupSectionRef.value?.reload(),
+    ]);
     selectedTimezone.value = settings.globalTimezone;
     sysStatus.value = status;
   } catch (error) {
@@ -178,12 +184,24 @@ async function handleLogout(): Promise<void> {
             <h3 class="section-title">服务运行状态</h3>
             <div class="text-muted text-caption">单机 NestJS + SQLite 进程健康指标与调度器心跳</div>
           </div>
-          <span
-            v-if="sysStatus"
-            :class="chipClass(sysStatus.scheduler.enabled && !sysStatus.scheduler.paused ? 'positive' : 'warning')"
-          >
-            {{ sysStatus.scheduler.paused ? '调度已暂停' : sysStatus.scheduler.enabled ? '调度运行中' : '调度已关闭' }}
-          </span>
+          <div class="status-head-actions">
+            <a
+              class="github-chip"
+              :href="GITHUB_REPO_URL"
+              target="_blank"
+              rel="noopener noreferrer"
+              :aria-label="`GitHub 仓库 ${GITHUB_REPO_LABEL}`"
+            >
+              <q-icon :name="icons.github" size="15px" />
+              <span>{{ GITHUB_REPO_LABEL }}</span>
+            </a>
+            <span
+              v-if="sysStatus"
+              :class="chipClass(sysStatus.scheduler.enabled && !sysStatus.scheduler.paused ? 'positive' : 'warning')"
+            >
+              {{ sysStatus.scheduler.paused ? '调度已暂停' : sysStatus.scheduler.enabled ? '调度运行中' : '调度已关闭' }}
+            </span>
+          </div>
         </div>
 
         <div v-if="sysStatus" class="status-grid q-mt-md">
@@ -236,8 +254,8 @@ async function handleLogout(): Promise<void> {
         </div>
       </div>
 
-      <!-- 全量加密备份与恢复 -->
-      <BackupSection />
+      <!-- 备份与恢复 -->
+      <BackupSection ref="backupSectionRef" />
 
       <!-- 移动端退出登录按钮 -->
       <div v-if="isMobile" class="q-pt-xs">
@@ -264,7 +282,32 @@ async function handleLogout(): Promise<void> {
 .card-head {
   display: flex;
   align-items: flex-start;
+  flex-wrap: wrap;
   gap: 10px;
+}
+.status-head-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.github-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--app-text-2);
+  background: var(--app-surface-2);
+  border: 1px solid var(--app-border);
+  text-decoration: none;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  &:hover {
+    color: var(--q-primary);
+    border-color: var(--q-primary);
+  }
 }
 .tz-row {
   display: flex;

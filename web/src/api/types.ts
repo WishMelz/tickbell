@@ -241,3 +241,32 @@ export interface BackupPreview {
   sourceVersion: 1 | 2;
   remindersWithoutUsableChannel: { id: string; title: string }[];
 }
+
+export type AutoBackupIntervalUnit = 'hour' | 'day';
+
+export interface AutoBackupConfig {
+  enabled: boolean;
+  time: string;
+  intervalEvery: number;
+  intervalUnit: AutoBackupIntervalUnit;
+  maxFiles: number;
+}
+
+export interface AutoBackupFileInfo {
+  name: string;
+  sizeBytes: number;
+  createdAt: string;
+}
+
+export interface AutoBackupView {
+  config: AutoBackupConfig;
+  state: {
+    lastRunAt: string | null;
+    lastFile: string | null;
+    nextRunAt: string | null;
+    lastError: string | null;
+  };
+  timezone: string;
+  backupDir: string;
+  files: AutoBackupFileInfo[];
+}

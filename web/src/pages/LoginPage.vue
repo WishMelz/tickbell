@@ -6,6 +6,7 @@ import ThemeToggle from '@/components/ThemeToggle.vue';
 import TimezoneSelect from '@/components/TimezoneSelect.vue';
 import { notifySuccess } from '@/composables/useResponsive';
 import { icons } from '@/icons';
+import { GITHUB_REPO_LABEL, GITHUB_REPO_URL } from '@/constants/project';
 import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { browserTimezone } from '@/utils/time';
@@ -305,7 +306,19 @@ onBeforeUnmount(() => {
         </form>
       </template>
     </main>
-    <p class="login-foot text-faint">TickBell · 轻量自部署提醒服务</p>
+    <p class="login-foot text-faint">
+      <span>TickBell · 轻量自部署提醒服务</span>
+      <span aria-hidden="true">·</span>
+      <a
+        class="foot-github"
+        :href="GITHUB_REPO_URL"
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        <q-icon :name="icons.github" size="14px" />
+        <span>{{ GITHUB_REPO_LABEL }}</span>
+      </a>
+    </p>
   </div>
 </template>
 
@@ -384,6 +397,22 @@ onBeforeUnmount(() => {
 .login-foot {
   margin-top: 20px;
   font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.foot-github {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: inherit;
+  text-decoration: none;
+  transition: color 0.15s ease;
+  &:hover {
+    color: var(--q-primary);
+  }
 }
 @media (max-width: 480px) {
   .login-card {
