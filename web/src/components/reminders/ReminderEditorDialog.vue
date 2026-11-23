@@ -55,6 +55,7 @@ const isEdit = computed(() => props.reminder !== null);
 const effectiveTimezone = computed(() => timezone.value ?? settings.globalTimezone);
 
 const repeatUnitOptions: Array<{ label: string; value: RepeatUnit }> = [
+  { label: '分钟', value: 'minute' },
   { label: '小时', value: 'hour' },
   { label: '天', value: 'day' },
   { label: '个月', value: 'month' },
@@ -286,6 +287,7 @@ function close(): void {
           <div class="two-col">
             <LocalDateTimePicker
               v-model="scheduledLocal"
+              :timezone="effectiveTimezone"
               label="首次提醒时间 *"
               :hint="`按 ${effectiveTimezone} 解释`"
               :disabled="saving"

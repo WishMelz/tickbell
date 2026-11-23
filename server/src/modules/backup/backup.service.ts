@@ -45,7 +45,7 @@ const reminderSchema = z.strictObject({
   next_run_at: timestamp,
   is_repeating: flag,
   repeat_every: z.number().int().min(1).max(9999).nullable(),
-  repeat_unit: z.enum(['hour', 'day', 'month', 'year']).nullable(),
+  repeat_unit: z.enum(['minute', 'hour', 'day', 'month', 'year']).nullable(),
   enabled: flag,
   completed: flag,
   deleted_at: timestamp.nullable(),

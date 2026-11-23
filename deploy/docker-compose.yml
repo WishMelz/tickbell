@@ -1,42 +1,26 @@
 services:
-  app:
+  tickbell:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: tickbell:latest
-    container_name: tickbell-app
+    image: wishmelz/tickbell:latest
+    container_name: tickbell
     restart: unless-stopped
+    ports:
+      # 宿主机仅暴露一个端口（同时托管前端页面与 /api 接口）
+      - "0.0.0.0:${PORT:-3000}:${PORT:-3000}"
     # 无需填写密码或密钥；首次启动打开网页设置并自动保存在 ./data/tickbell.db 中
     env_file:
       - path: .env
         required: false
-    volumes:
-      - ./data:/data
-    # 如果服务器已有 Nginx / 宝塔 / 1Panel，可删除下方 caddy 服务，并取消此处的端口映射注释：
-    # ports:
-    #   - "127.0.0.1:3000:3000"
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  caddy:
-    image: caddy:2-alpine
-    container_name: tickbell-caddy
-    restart: unless-stopped
-    depends_on:
-      app:
-        condition: service_healthy
-    ports:
-      - "80:80"
-      - "443:443"
     environment:
-      DOMAIN: ${DOMAIN:-localhost}
+      PORT: "${PORT:-3000}"
+      DB_PATH: "${DB_PATH:-/data/tickbell.db}"
+      BACKUP_DIR: "${BACKUP_DIR:-/data/backups}"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      - ./caddy_data:/data
-      - ./caddy_config:/config
+      # 挂载整个目录（同时持久化 tickbell.db、-wal/-shm 以及 backups/）
+      # Linux 宿主机首次启动前建议执行：mkdir -p ./data && chown -R 1000:1000 ./data
+      - ./data:/data
     logging:
       driver: json-file
       options:

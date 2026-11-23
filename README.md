@@ -15,23 +15,69 @@
   - **通用 Webhook**：支持 `POST` / `PUT`、标准 HMAC-SHA256 签名头（`X-Reminder-Timestamp` / `X-Reminder-Signature`）、自定义请求头与 JSON 模板
 - **可靠的定时调度引擎**：
   - 进程内 15 秒轮询 + 单飞锁 + 数据库唯一键去重，同一提醒不重复触发
-  - 精确 IANA 时区支持与重复规则（每 N 小时 / 天 / 月 / 年，自动处理月底锚定、闰年与夏令时）
+  - 精确 IANA 时区支持与重复规则（每 N 分钟 / 小时 / 天 / 月 / 年，自动处理月底锚定、闰年与夏令时）
   - 服务停机重启宽限窗口补偿（默认 60 分钟）
   - 瞬态/频控失败自动指数退避重试（`1 → 5 → 15` 分钟，最多 3 次），支持日志页手动重试
   - 每日 `VACUUM INTO` 在线一致性备份，支持可读明文 JSON 全量导出与一键恢复
 - **PC + H5 全端适配**：一套 Vue 3 + Quasar 2 前端代码同时兼容桌面端（≥ 1024px）与移动端（360px 起），支持浅色 / 深色 / 跟随系统三种主题及 TipTap 富文本编辑器。
 
+## 界面预览
+
+### 提醒列表（PC 浅色）
+支持搜索、状态/分类/标签筛选、批量操作以及分钟 / 小时 / 天 / 月 / 年重复规则展示：
+
+![TickBell 提醒列表](./docs/screenshots/reminders-desktop.png)
+
+### 富文本编辑与重复规则
+内置 TipTap 富文本编辑器、独立时区覆盖、自定义重复间隔与多渠道组合测试发送：
+
+![TickBell 提醒编辑抽屉](./docs/screenshots/reminder-editor.png)
+
+### 7 种内置通知渠道
+动态表单 + 卡片摘要展示，支持按类型筛选与一键在线测试：
+
+![TickBell 通知渠道管理](./docs/screenshots/channels-desktop.png)
+
+### 投递日志与深色主题
+完整记录每次投递状态（已发送 / 等待重试 / 失败 / 已跳过）、HTTP 状态码、错误详情与手动重试：
+
+![TickBell 投递日志深色模式](./docs/screenshots/deliveries-dark.png)
+
+### 移动端 H5 适配
+一套前端自适应 360px 起小屏设备，提供移动端卡片视图、底部导航栏与悬浮快捷按钮：
+
+<p align="center">
+  <img src="./docs/screenshots/mobile-h5.png" width="320" alt="TickBell 移动端 H5 提醒列表" />
+</p>
+
+## 快速部署（Docker Compose，推荐）
+
+无需克隆源码，只需仓库根目录的 [`docker-compose.yml`](./docker-compose.yml) 一个文件（同时支持 `linux/amd64` 与 `linux/arm64`）：
+
+```bash
+mkdir -p tickbell/data && cd tickbell
+chown -R 1000:1000 ./data   # Linux 宿主机授权给容器内 node 用户（uid=1000）
+# 将本项目根目录的 docker-compose.yml 保存到当前目录后启动：
+docker compose up -d
+```
+
+启动后访问 `http://<服务器IP>:3000`，首次打开按页面向导设置管理密码、系统密钥与默认时区即可使用。后续升级只需执行 `docker compose pull && docker compose up -d`。
+
+> 如需从源码自行构建镜像或查看 SQLite 恢复运维说明，详见 [`deploy/README.md`](./deploy/README.md)。
+
 ## 目录结构
 
 ```text
 tickbell/
+├─ docker-compose.yml       单文件开箱部署模板（直接拉取 wishmelz/tickbell:latest）
 ├─ docs/
+│  ├─ screenshots/          README 界面预览截图
 │  ├─ API.md                前后端接口契约
 │  ├─ 通知渠道扩展计划.md     通知渠道插件化设计与规格
 │  └─ 重构方案.md            系统架构与设计决策记录
 ├─ web/                     前端项目（Vue 3 + TypeScript + Vite 8 + Quasar 2）
 ├─ server/                  后端项目（NestJS 11 + SQLite WAL）
-├─ deploy/                  Dockerfile、docker-compose.yml、Caddyfile、部署指南
+├─ deploy/                  Dockerfile（源码构建）、.env.example、部署与运维指南
 ├─ CONTRIBUTING.md          开发与新增通知渠道贡献指南
 └─ LICENSE                  MIT License
 ```
@@ -67,10 +113,6 @@ pnpm run start:prod
 ```
 
 启动后访问 `http://localhost:3000` 即可同时使用前端页面与 `/api` 接口。
-
-## 生产部署（Docker Compose）
-
-详见 [`deploy/README.md`](./deploy/README.md)。
 
 ## 参与贡献
 

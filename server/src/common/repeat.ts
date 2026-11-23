@@ -2,8 +2,8 @@ import { Temporal } from '@js-temporal/polyfill';
 
 // Ported from Tips `src/services/repeat.ts`. The algorithm is intentionally kept identical.
 
-export type RepeatUnit = 'hour' | 'day' | 'month' | 'year';
-export const REPEAT_UNITS: readonly RepeatUnit[] = ['hour', 'day', 'month', 'year'];
+export type RepeatUnit = 'minute' | 'hour' | 'day' | 'month' | 'year';
+export const REPEAT_UNITS: readonly RepeatUnit[] = ['minute', 'hour', 'day', 'month', 'year'];
 
 export interface RepeatRule {
   every: number;
@@ -15,6 +15,10 @@ export interface RepeatRule {
 export function calculateNextRun(previousScheduledAt: number, rule: RepeatRule): number {
   const previous = Temporal.Instant.fromEpochMilliseconds(previousScheduledAt)
     .toZonedDateTimeISO(rule.timezone);
+
+  if (rule.unit === 'minute') {
+    return previous.add({ minutes: rule.every }).toInstant().epochMilliseconds;
+  }
 
   if (rule.unit === 'hour') {
     return previous.add({ hours: rule.every }).toInstant().epochMilliseconds;
@@ -50,18 +54,22 @@ export function calculateNextFutureRun(
   const firstNextRun = calculateNextRun(previousScheduledAt, rule);
   if (firstNextRun > now) return firstNextRun;
 
-  if (rule.unit === 'hour') {
-    const interval = rule.every * 60 * 60 * 1000;
+  if (rule.unit === 'minute' || rule.unit === 'hour') {
+    const stepMs = rule.unit === 'minute' ? 60 * 1000 : 60 * 60 * 1000;
+    const interval = rule.every * stepMs;
+    const addDuration = (count: number) =>
+      rule.unit === 'minute'
+        ? previous.add({ minutes: count * rule.every }).toInstant().epochMilliseconds
+        : previous.add({ hours: count * rule.every }).toInstant().epochMilliseconds;
     const elapsed = now - firstNextRun;
     let periods = Math.max(1, Math.floor(elapsed / interval) + 1);
-    let nextRunAt = previous.add({ hours: periods * rule.every }).toInstant().epochMilliseconds;
+    let nextRunAt = addDuration(periods);
     while (nextRunAt <= now) {
       periods += 1;
-      nextRunAt = previous.add({ hours: periods * rule.every }).toInstant().epochMilliseconds;
+      nextRunAt = addDuration(periods);
     }
     while (periods > 1) {
-      const previousRunAt = previous.add({ hours: (periods - 1) * rule.every })
-        .toInstant().epochMilliseconds;
+      const previousRunAt = addDuration(periods - 1);
       if (previousRunAt <= now) break;
       periods -= 1;
       nextRunAt = previousRunAt;

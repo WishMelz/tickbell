@@ -1,28 +1,22 @@
 # TickBell 极简部署与运维指南
 
-## 1. 首次部署（几乎零配置）
+## 1. 首次部署（单容器 · 单端口 · 零必填密钥）
 
 管理密码和系统密钥**不需要**写进环境变量：启动容器后首次打开网页手动设置一次即可，数据会持久化在 `deploy/data/tickbell.db` 中，后续重启、升级都不需要再配置。
 
-### 方式 A：使用自带 Caddy（自动 HTTPS）
+宿主机仅暴露一个端口（默认 `0.0.0.0:3000:3000`），同一个容器同时托管前端页面与 `/api` 接口：
 
 ```bash
 cd tickbell/deploy
-cp .env.example .env
-# 只需在 .env 里把 DOMAIN 改成你的域名
+# Linux 宿主机首次启动前创建数据目录并授权给容器内 node 用户（uid=1000）
+mkdir -p ./data && chown -R 1000:1000 ./data
+
+# 如已有本机镜像可直接 docker compose up -d；首次从源码构建加 --build
 docker compose up -d --build
 ```
 
-### 方式 B：服务器已有 Nginx / 宝塔 / 1Panel
-
-不需要 `.env` 文件：在 `docker-compose.yml` 中注释掉 `caddy` 服务、取消 `127.0.0.1:3000:3000` 端口映射，然后运行：
-
-```bash
-cd tickbell/deploy
-docker compose up -d --build
-```
-
-在现有反向代理中将域名转发到 `http://127.0.0.1:3000`（传递 `X-Forwarded-For` 与 `X-Forwarded-Proto`，系统会自动识别 HTTPS 并设置 Cookie `Secure`）。
+> - 修改端口：在 `deploy/.env` 中写入 `PORT=8088`（或直接修改 `docker-compose.yml` 中的 `ports` 左侧）。
+> - 如需挂在已有 Nginx / 宝塔 / 1Panel 反向代理后面：将 `ports` 改为 `"127.0.0.1:3000:3000"`，反代转发到 `http://127.0.0.1:3000` 并传递 `X-Forwarded-For` 与 `X-Forwarded-Proto`（`COOKIE_SECURE=auto` 会自动识别 HTTPS）。
 
 ### 首次初始化
 
@@ -60,10 +54,10 @@ docker compose up -d --build
 
 ```bash
 cd tickbell/deploy
-docker compose stop app
+docker compose stop tickbell
 cp data/backups/tickbell-YYYYMMDD-HHmmss.db data/tickbell.db
 rm -f data/tickbell.db-wal data/tickbell.db-shm
-docker compose start app
+docker compose start tickbell
 ```
 
 ## 5. 升级

@@ -5,8 +5,8 @@
 
 ARG NODE_IMAGE=node:24-slim
 
-# ---------- 1. 构建前端 ----------
-FROM ${NODE_IMAGE} AS web-build
+# ---------- 1. 构建前端（静态产物与 CPU 架构无关，使用宿主机原生架构构建以加速多架构打包） ----------
+FROM --platform=$BUILDPLATFORM ${NODE_IMAGE} AS web-build
 RUN npm install -g pnpm@12
 WORKDIR /app/web
 COPY web/package.json web/pnpm-lock.yaml web/pnpm-workspace.yaml ./

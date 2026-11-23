@@ -96,7 +96,7 @@ export interface ChannelTestResult {
 }
 
 // ---------- Reminders ----------
-export type RepeatUnit = 'hour' | 'day' | 'month' | 'year';
+export type RepeatUnit = 'minute' | 'hour' | 'day' | 'month' | 'year';
 export type ReminderStatusFilter = 'active' | 'paused' | 'completed';
 
 export interface ReminderView {

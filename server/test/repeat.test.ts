@@ -40,9 +40,17 @@ describe('repeat schedule calculations', () => {
     expect((afterDst - beforeDst) / 3_600_000).toBe(23);
   });
 
-  it('skips missed hourly and daily periods cleanly without drift', () => {
+  it('skips missed minute, hourly, and daily periods cleanly without drift', () => {
     const tz = 'Asia/Shanghai';
     const start = localDateTimeToEpoch('2026-01-01T10:00', tz);
+
+    const nextMin = calculateNextRun(start, { every: 15, unit: 'minute', timezone: tz, startsAt: start });
+    expect(epochToLocalInput(nextMin, tz)).toBe('2026-01-01T10:15');
+
+    const minNow = localDateTimeToEpoch('2026-01-01T10:37', tz);
+    const futureMin = calculateNextFutureRun(start, minNow, { every: 15, unit: 'minute', timezone: tz, startsAt: start });
+    expect(epochToLocalInput(futureMin, tz)).toBe('2026-01-01T10:45');
+
     const now = localDateTimeToEpoch('2026-01-01T17:30', tz);
     const nextHour = calculateNextFutureRun(start, now, { every: 2, unit: 'hour', timezone: tz, startsAt: start });
     expect(epochToLocalInput(nextHour, tz)).toBe('2026-01-01T18:00');

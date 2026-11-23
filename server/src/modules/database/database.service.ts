@@ -75,15 +75,28 @@ export class DatabaseService implements OnModuleInit, OnApplicationShutdown {
     const appliedRows = db.prepare('SELECT version FROM schema_migrations').all() as Array<{ version: string }>;
     const applied = new Set(appliedRows.map((row) => row.version));
 
-    for (const file of files) {
-      if (applied.has(file)) continue;
-      const sql = fs.readFileSync(path.join(dir, file), 'utf8');
-      const apply = db.transaction(() => {
-        db.exec(sql);
-        db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(file, Date.now());
-      });
-      apply();
-      this.logger.log({ migration: file }, 'Applied SQLite migration');
+    const pending = files.filter((file) => !applied.has(file));
+    if (!pending.length) return;
+
+    // Disable foreign key enforcement outside the transaction so table-rebuild migrations
+    // (SQLite's standard ALTER TABLE pattern) never trigger ON DELETE CASCADE on child tables.
+    db.pragma('foreign_keys = OFF');
+    try {
+      for (const file of pending) {
+        const sql = fs.readFileSync(path.join(dir, file), 'utf8');
+        const apply = db.transaction(() => {
+          db.exec(sql);
+          const violations = db.pragma('foreign_key_check') as unknown[];
+          if (violations.length > 0) {
+            throw new Error(`Migration ${file} introduced foreign key violations: ${JSON.stringify(violations)}`);
+          }
+          db.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run(file, Date.now());
+        });
+        apply();
+        this.logger.log({ migration: file }, 'Applied SQLite migration');
+      }
+    } finally {
+      db.pragma('foreign_keys = ON');
     }
   }
 

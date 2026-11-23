@@ -130,6 +130,7 @@ export function formatDuration(seconds: number): string {
 }
 
 export const REPEAT_UNIT_LABELS: Record<RepeatUnit, string> = {
+  minute: '分钟',
   hour: '小时',
   day: '天',
   month: '个月',
@@ -138,6 +139,6 @@ export const REPEAT_UNIT_LABELS: Record<RepeatUnit, string> = {
 
 export function repeatText(isRepeating: boolean, every: number | null, unit: RepeatUnit | null): string {
   if (!isRepeating || !every || !unit) return '单次';
-  if (every === 1) return { hour: '每小时', day: '每天', month: '每月', year: '每年' }[unit];
+  if (every === 1) return { minute: '每分钟', hour: '每小时', day: '每天', month: '每月', year: '每年' }[unit];
   return `每 ${every} ${REPEAT_UNIT_LABELS[unit]}`;
 }

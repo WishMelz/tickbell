@@ -114,7 +114,7 @@
   usesGlobalTimezone: boolean;   // true 表示 DB 中 timezone 为 NULL
   scheduledLocal: string;        // 首次计划时间（本地，YYYY-MM-DDTHH:mm）
   startsAt: string;              // ISO UTC
-  isRepeating: boolean; repeatEvery: number | null; repeatUnit: 'hour' | 'day' | 'month' | 'year' | null;
+  isRepeating: boolean; repeatEvery: number | null; repeatUnit: 'minute' | 'hour' | 'day' | 'month' | 'year' | null;
   channelIds: string[];
   enabled: boolean; completed: boolean;
   nextRunAt: string;             // ISO UTC
@@ -135,7 +135,7 @@
   timezone: string | null;       // null 表示跟随全局时区
   isRepeating: boolean;
   repeatEvery: number | null;    // 重复提醒时必须是 1–9999 的整数
-  repeatUnit: 'hour' | 'day' | 'month' | 'year' | null;
+  repeatUnit: 'minute' | 'hour' | 'day' | 'month' | 'year' | null;
   channelIds: string[];          // 至少 1 个，必须都存在
   enabled?: boolean;             // 只在创建时生效，默认 true
 }

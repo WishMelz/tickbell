@@ -801,4 +801,74 @@ describe('TickBell end-to-end integration', () => {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
+
+  it('migrates an existing 0001 DB to 0002 without losing FK children and runs minute-level repeating reminders', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tickbell-mig-'));
+    const dbPath = path.join(tmpDir, 'tickbell.db');
+    try {
+      // Simulate an existing DB that only applied 0001_init.sql and already has data + FK child rows
+      const preDb = new Database(dbPath);
+      preDb.pragma('foreign_keys = ON');
+      preDb.exec(`
+        CREATE TABLE schema_migrations (version TEXT PRIMARY KEY, applied_at INTEGER NOT NULL);
+      `);
+      const initSql = fs.readFileSync(path.resolve(__dirname, '../migrations/0001_init.sql'), 'utf8');
+      preDb.exec(initSql);
+      const now = Date.UTC(2026, 10, 23, 10, 0, 0);
+      preDb.prepare('INSERT INTO schema_migrations (version, applied_at) VALUES (?, ?)').run('0001_init.sql', now);
+      preDb
+        .prepare('INSERT INTO channels (id, name, type, enabled, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+        .run('ch-1', 'Bark', 'bark', 1, JSON.stringify({ serverUrl: 'https://api.day.app', deviceKey: 'k1' }), now, now);
+      preDb
+        .prepare(
+          `INSERT INTO reminders (id, title, content, category, tags, timezone, starts_at, is_repeating, repeat_every, repeat_unit, enabled, completed, next_run_at, schedule_version, created_at, updated_at)
+           VALUES (?, ?, ?, '', '[]', 'UTC', ?, 0, NULL, NULL, 1, 0, ?, 0, ?, ?)`,
+        )
+        .run('rem-existing', '既有提醒', '正文', now + 3600_000, now + 3600_000, now, now);
+      preDb.prepare('INSERT INTO reminder_channels (reminder_id, channel_id) VALUES (?, ?)').run('rem-existing', 'ch-1');
+      preDb
+        .prepare(
+          `INSERT INTO deliveries (id, event_id, reminder_id, scheduled_at, channel_id, status, attempts, created_at, updated_at)
+           VALUES ('del-1', 'evt-1', 'rem-existing', ?, 'ch-1', 'sent', 1, ?, ?)`,
+        )
+        .run(now, now, now);
+      preDb.close();
+
+      // Booting the app must apply 0002_add_minute_repeat_unit.sql cleanly and preserve all existing rows
+      const { app, scheduler, loginCookie } = await createTestApp({ dbPath });
+      const server = app.getHttpServer();
+      const cookie = await loginCookie();
+
+      const existingRem = await request(server).get('/api/reminders/rem-existing').set('Cookie', cookie).expect(200);
+      expect(existingRem.body.data.channelIds).toEqual(['ch-1']);
+
+      // Create a 10-minute repeating reminder and verify scheduler advances it by 10 minutes
+      const minRem = await request(server)
+        .post('/api/reminders')
+        .set('Cookie', cookie)
+        .send({
+          title: '每 10 分钟提醒',
+          scheduledLocal: '2026-11-23T14:00',
+          timezone: 'Asia/Shanghai',
+          isRepeating: true,
+          repeatEvery: 10,
+          repeatUnit: 'minute',
+          channelIds: ['ch-1'],
+        })
+        .expect(201);
+      expect(minRem.body.data.repeatUnit).toBe('minute');
+      expect(minRem.body.data.repeatEvery).toBe(10);
+
+      const t0 = Date.parse(minRem.body.data.nextRunAt);
+      await scheduler.runTick(t0 + 2_000);
+      const after = await request(server).get(`/api/reminders/${minRem.body.data.id}`).set('Cookie', cookie).expect(200);
+      expect(Date.parse(after.body.data.nextRunAt)).toBe(t0 + 10 * 60 * 1000);
+    } finally {
+      while (appsToClose.length) {
+        const app = appsToClose.pop();
+        if (app) await app.close();
+      }
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
 });
