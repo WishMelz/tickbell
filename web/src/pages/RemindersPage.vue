@@ -52,8 +52,11 @@ const usableChannelOptions = computed(() =>
     .map((c) => ({ label: c.name, value: c.id })),
 );
 
+const knownCategories = ref<string[]>([]);
+const knownTags = ref<string[]>([]);
+
 const allCategories = computed(() => {
-  const set = new Set<string>();
+  const set = new Set<string>(knownCategories.value);
   for (const r of reminders.value) {
     if (r.category) set.add(r.category);
   }
@@ -61,7 +64,7 @@ const allCategories = computed(() => {
 });
 
 const allTags = computed(() => {
-  const set = new Set<string>();
+  const set = new Set<string>(knownTags.value);
   for (const r of reminders.value) {
     for (const t of r.tags) set.add(t);
   }
@@ -122,6 +125,11 @@ async function loadData(silent = false): Promise<void> {
     reminders.value = remList;
     channels.value = chList;
     initialized.value = true;
+    // 无筛选条件时同步全量分类与标签，确保筛选时下拉选项完整
+    if (!(search.value ?? '').trim() && !statusFilter.value && !categoryFilter.value && !tagFilter.value) {
+      knownCategories.value = [...new Set(remList.map((r) => r.category).filter(Boolean))];
+      knownTags.value = [...new Set(remList.flatMap((r) => r.tags))];
+    }
     // 保留仍在当前列表中的选中项
     const valid = new Set(remList.map((r) => r.id));
     selectedIds.value = selectedIds.value.filter((id) => valid.has(id));
@@ -314,6 +322,20 @@ function isChannelUnsupported(id: string): boolean {
   const ch = channelMap.value.get(id);
   return Boolean(ch && !ch.supported);
 }
+
+function visibleTags(row: ReminderView): string[] {
+  const limit = row.category ? 2 : 3;
+  return row.tags.slice(0, limit);
+}
+
+function hiddenTags(row: ReminderView): string[] {
+  const limit = row.category ? 2 : 3;
+  return row.tags.slice(limit);
+}
+
+function tooltipContent(text: string): string {
+  return text.length > 1500 ? `${text.slice(0, 1500)}…` : text;
+}
 </script>
 
 <template>
@@ -436,11 +458,43 @@ function isChannelUnsupported(id: string): boolean {
     >
       <template #body-cell-title="props">
         <q-td :props="props" class="title-cell">
-          <div class="row-title" @click="openEdit(props.row)">{{ props.row.title }}</div>
-          <div v-if="props.row.content" class="row-desc text-muted">{{ props.row.content }}</div>
-          <div v-if="props.row.category || props.row.tags.length" class="tag-row">
-            <span v-if="props.row.category" class="tag-pill">{{ props.row.category }}</span>
-            <span v-for="t in props.row.tags" :key="t" class="tag-pill">#{{ t }}</span>
+          <div class="row-title" @click="openEdit(props.row)">
+            {{ props.row.title }}
+            <q-tooltip
+              anchor="top left"
+              self="bottom left"
+              :offset="[0, 6]"
+              :delay="220"
+              class="reminder-preview-tooltip"
+            >
+              {{ props.row.title }}
+            </q-tooltip>
+          </div>
+          <div v-if="props.row.content" class="row-desc text-muted">
+            {{ props.row.content }}
+            <q-tooltip
+              anchor="bottom left"
+              self="top left"
+              :offset="[0, 6]"
+              :delay="220"
+              class="reminder-preview-tooltip"
+            >
+              {{ tooltipContent(props.row.content) }}
+            </q-tooltip>
+          </div>
+          <div v-if="props.row.category || props.row.tags.length" class="tag-row tag-row--compact">
+            <span v-if="props.row.category" class="tag-pill tag-pill--category" :title="props.row.category">
+              {{ props.row.category }}
+            </span>
+            <span v-for="t in visibleTags(props.row)" :key="t" class="tag-pill tag-pill--item" :title="`#${t}`">
+              #{{ t }}
+            </span>
+            <span v-if="hiddenTags(props.row).length" class="tag-pill tag-pill--more">
+              +{{ hiddenTags(props.row).length }}
+              <q-tooltip anchor="top middle" self="bottom middle" :offset="[0, 6]">
+                {{ hiddenTags(props.row).map((t) => `#${t}`).join(' · ') }}
+              </q-tooltip>
+            </span>
           </div>
         </q-td>
       </template>
@@ -598,7 +652,7 @@ function isChannelUnsupported(id: string): boolean {
 
             <div class="card-bottom">
               <div class="tag-row">
-                <span v-if="item.category" class="tag-pill">{{ item.category }}</span>
+                <span v-if="item.category" class="tag-pill tag-pill--category">{{ item.category }}</span>
                 <span v-for="cid in item.channelIds" :key="cid" class="tag-pill">{{ channelName(cid) }}</span>
               </div>
               <div v-if="!mobileSelectMode" class="card-actions" @click.stop>
@@ -648,6 +702,7 @@ function isChannelUnsupported(id: string): boolean {
       :reminder="editingReminder"
       :channels="channels"
       :existing-categories="allCategories"
+      :existing-tags="allTags"
       @saved="loadData(true)"
     />
 
@@ -711,6 +766,9 @@ function isChannelUnsupported(id: string): boolean {
 .row-title {
   font-weight: 600;
   cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   &:hover {
     color: var(--q-primary);
   }
@@ -722,12 +780,42 @@ function isChannelUnsupported(id: string): boolean {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+  cursor: default;
 }
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   margin-top: 6px;
+}
+.tag-row--compact {
+  flex-wrap: nowrap;
+  align-items: center;
+  overflow: hidden;
+}
+.tag-pill--category {
+  max-width: 110px;
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 550;
+  padding: 0 7px;
+  background: color-mix(in srgb, var(--q-primary) 10%, transparent);
+  border-color: color-mix(in srgb, var(--q-primary) 24%, transparent);
+  color: var(--q-primary);
+}
+.tag-pill--item {
+  max-width: 108px;
+  min-width: 0;
+  font-size: 11.5px;
+  padding: 0 7px;
+}
+.tag-pill--more {
+  flex-shrink: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 0 7px;
+  color: var(--app-text-3);
+  cursor: default;
 }
 .actions-cell {
   white-space: nowrap;

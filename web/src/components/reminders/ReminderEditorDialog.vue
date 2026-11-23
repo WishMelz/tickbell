@@ -24,6 +24,7 @@ const props = defineProps<{
   reminder: ReminderView | null;
   channels: ChannelView[];
   existingCategories: string[];
+  existingTags: string[];
 }>();
 
 const emit = defineEmits<{
@@ -66,6 +67,15 @@ const categoryFilter = ref('');
 const categoryOptions = computed(() => {
   const q = categoryFilter.value.trim().toLowerCase();
   return props.existingCategories.filter((c) => c && (!q || c.toLowerCase().includes(q)));
+});
+
+const tagFilter = ref('');
+const tagOptions = computed(() => {
+  const q = tagFilter.value.trim().toLowerCase();
+  const merged = new Set([...props.existingTags, ...tags.value]);
+  return [...merged]
+    .filter((t) => t && (!q || t.toLowerCase().includes(q)))
+    .sort((a, b) => a.localeCompare(b, 'zh-CN'));
 });
 
 const channelOptions = computed(() =>
@@ -126,6 +136,12 @@ watch(
 function filterCategories(val: string, update: (fn: () => void) => void): void {
   update(() => {
     categoryFilter.value = val;
+  });
+}
+
+function filterTags(val: string, update: (fn: () => void) => void): void {
+  update(() => {
+    tagFilter.value = val;
   });
 }
 
@@ -383,17 +399,36 @@ function close(): void {
 
             <q-select
               v-model="tags"
+              :options="tagOptions"
               use-input
               use-chips
               multiple
-              hide-dropdown-icon
+              :max-values="10"
               input-debounce="0"
               outlined
               dense
-              label="标签（回车添加，最多 10 个）"
+              label="标签（选择或回车添加，最多 10 个）"
+              :behavior="isMobile ? 'dialog' : 'menu'"
               :disable="saving"
+              @filter="filterTags"
               @new-value="addTag"
-            />
+            >
+              <template #option="{ itemProps, opt, selected, toggleOption }">
+                <q-item v-bind="itemProps" dense>
+                  <q-item-section side>
+                    <q-checkbox :model-value="selected" dense @update:model-value="toggleOption(opt)" />
+                  </q-item-section>
+                  <q-item-section>#{{ opt }}</q-item-section>
+                </q-item>
+              </template>
+              <template #no-option>
+                <q-item dense>
+                  <q-item-section class="text-muted text-caption">
+                    {{ tagFilter.trim() ? `按回车新建标签「#${tagFilter.trim()}」` : '暂无已有标签，输入后按回车新建' }}
+                  </q-item-section>
+                </q-item>
+              </template>
+            </q-select>
           </div>
 
           <div v-if="!isEdit" class="repeat-head">

@@ -192,6 +192,17 @@ body {
   white-space: nowrap;
 }
 
+.reminder-preview-tooltip {
+  max-width: 420px;
+  max-height: 280px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12.5px;
+  line-height: 1.55;
+  padding: 8px 12px;
+}
+
 /* ---------- 空状态 ---------- */
 .empty-state {
   display: flex;
