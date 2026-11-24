@@ -40,7 +40,7 @@ docker compose up -d --build
 
 ## 3. 全量备份导入与跨实例迁移
 
-1. 在原实例「系统设置 → 导出全量备份」导出可读明文 JSON（`tickbell-full-backup` v2，同时兼容旧版 `tips-full-backup` / `tips-encrypted-backup` v1）。
+1. 在原实例「系统设置 → 导出全量备份」导出可读明文 JSON（`tickbell-full-backup`）。
 2. 在新实例完成首次初始化并登录后，进入「系统设置 → 导入并覆盖恢复」，导入备份文件（恢复不会覆盖新实例已设置的管理密码和密钥）。
 3. 停用旧实例的定时任务或服务，防止重复推送。
 4. 在新实例中检查渠道配置并启用提醒。

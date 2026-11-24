@@ -1,123 +1,191 @@
-# TickBell
+# TickBell（滴答铃）
 
-轻量、可靠、单机自部署的多渠道提醒系统（滴答铃）。基于 **NestJS + SQLite + Vue 3 + Quasar** 构建，零外部中间件依赖，一条命令即可通过 Docker 部署，支持 PC 与移动端（H5）完整体验。
+轻量、可靠的多渠道定时提醒系统，支持 **Cloudflare Workers + D1 一键部署** 与 **Docker 单机自部署** 双运行形态。  
+基于 **Hono + SQLite/D1 + Vue 3 + Quasar 2** 构建，不设提醒条数上限，原生适配 PC 与移动端（H5）。
+
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/WishMelz/tickbell)
+
+[核心特性](#核心特性) · [部署选型](#部署选型) · [快速部署](#快速部署) · [通知渠道](#内置通知渠道) · [数据迁移](#备份与双端迁移) · [本地开发](#本地开发)
+
+---
 
 ## 核心特性
 
-- **极简零配置部署**：无需在环境变量中填写管理密码或会话密钥；首次启动通过网页向导初始化并持久化到 SQLite，重启与升级零配置。
-- **内置 7 种主流通知渠道（插件化架构）**：
-  - **Bark**：支持官方或自建内网/公网服务，完整支持分组、通知级别、铃声、重复响铃、重要警告音量、图标与历史记录
-  - **Telegram Bot**：支持官方及自建 Bot API 代理、超级群组 Topic 话题、HTML 富文本排版、静默推送与防转发
-  - **企业微信群机器人**：支持 `markdown`、`markdown_v2`、`text` 消息类型及 `@成员` / `@所有人`
-  - **钉钉群机器人**：支持加签（HMAC-SHA256）与自定义关键词安全校验、`markdown` / `text` 及 `@成员` / `@所有人`
-  - **飞书群机器人**：支持飞书/Lark 签名校验与关键词、交互式富文本卡片（可自定义主题色，延迟送达自动标橙）与 `@所有人`
-  - **Server酱**：自动识别 Server酱³（`sctp{uid}t...`）与 Server酱 Turbo（`SCT...`），支持自定义推送通道与标签
-  - **通用 Webhook**：支持 `POST` / `PUT`、标准 HMAC-SHA256 签名头（`X-Reminder-Timestamp` / `X-Reminder-Signature`）、自定义请求头与 JSON 模板
-- **可靠的定时调度引擎**：
-  - 进程内 15 秒轮询 + 单飞锁 + 数据库唯一键去重，同一提醒不重复触发
-  - 精确 IANA 时区支持与重复规则（每 N 分钟 / 小时 / 天 / 月 / 年，自动处理月底锚定、闰年与夏令时）
-  - 服务停机重启宽限窗口补偿（默认 60 分钟）
-  - 瞬态/频控失败自动指数退避重试（`1 → 5 → 15` 分钟，最多 3 次），支持日志页手动重试
-  - 每日 `VACUUM INTO` 在线一致性备份，支持可读明文 JSON 全量导出与一键恢复
-- **PC + H5 全端适配**：一套 Vue 3 + Quasar 2 前端代码同时兼容桌面端（≥ 1024px）与移动端（360px 起），支持浅色 / 深色 / 跟随系统三种主题及 TipTap 富文本编辑器。
+- **双形态同源**：一套核心代码同时运行于 **Cloudflare Workers + D1** 与 **Docker / Node + SQLite**，前端按运行环境能力自动适配界面。
+- **零配置首次初始化**：无需手写环境变量或密钥，部署后打开网页按向导设置管理密码与系统密钥即可使用。
+- **高可靠调度引擎**：精确 IANA 时区与重复规则（分 / 时 / 日 / 月 / 年，自动处理月底锚定、闰年与夏令时）；数据库唯一键 + 历史去重凭据 + 乐观锁防重发；支持错过宽限补偿（默认 60 分钟）与指数退避重试（`1 → 5 → 15` 分钟）。
+- **无提醒条数上限**：全量服务端分页与排序，D1 端自动按 100 绑定参数上限切片并打包进单次原子 `batch()`。
+- **全端体验**：PC + 移动端（H5）响应式界面，内置浅色 / 深色 / 跟随系统主题与 TipTap 富文本编辑器。
 
-## 界面预览
+---
 
-### 提醒列表（PC 浅色）
-支持搜索、状态/分类/标签筛选、批量操作以及分钟 / 小时 / 天 / 月 / 年重复规则展示：
+## 部署选型
 
-![TickBell 提醒列表](./docs/screenshots/reminders-desktop.png)
+| 对比维度 | Cloudflare Workers + D1（推荐） | Docker 单机自部署 |
+| :--- | :--- | :--- |
+| **服务器与费用** | 零服务器，Free Plan 免费额度即可运行 | 需自备 Linux / NAS / VPS |
+| **部署难度** | 点击一键部署按钮，零命令行 | 单文件 `docker-compose.yml` 启动 |
+| **数据库** | Cloudflare D1（自带 Time Travel 灾备） | 本地 SQLite WAL（每日自动 `VACUUM INTO` 备份） |
+| **调度精度** | 1 分钟（Cron Trigger + 子请求预算流控） | 默认 15 秒（可自定义） |
+| **推送内网 / 自建服务** | 仅支持公网 HTTPS/HTTP 地址 | 支持内网 IP / Docker 容器直连 |
+| **出站网络代理** | 不支持（边缘节点公网直连） | 支持 HTTP / HTTPS / SOCKS5 代理池 |
+| **适用场景** | 个人日常提醒、零运维、全球稳定推送 | 内网自建 Bark/Webhook、高频提醒、完全私有化 |
 
-### 富文本编辑与重复规则
-内置 TipTap 富文本编辑器、独立时区覆盖、自定义重复间隔与多渠道组合测试发送：
+---
 
-![TickBell 提醒编辑抽屉](./docs/screenshots/reminder-editor.png)
+## 快速部署
 
-### 7 种内置通知渠道
-动态表单 + 卡片摘要展示，支持按类型筛选与一键在线测试：
+### 方式一：Cloudflare 一键部署（零成本、零命令行）
 
-![TickBell 通知渠道管理](./docs/screenshots/channels-desktop.png)
+1. 点击页面顶部的 **Deploy to Cloudflare** 按钮，登录并授权克隆仓库到你的 GitHub 账号。
+2. Cloudflare 会自动创建 D1 数据库并执行 `pnpm run deploy`（构建前端 → 按绑定名 `DB` 执行 D1 迁移 → 发布 Worker 与 Cron Trigger）。
+3. 部署完成后打开生成的 `https://<your-worker>.workers.dev` 地址完成首次初始化。
 
-### 投递日志与深色主题
-完整记录每次投递状态（已发送 / 等待重试 / 失败 / 已跳过）、HTTP 状态码、错误详情与手动重试：
+> **后续更新**：在 GitHub 你的仓库中点击 **Sync fork**，Cloudflare Workers Builds 会自动触发重新构建与发布。
 
-![TickBell 投递日志深色模式](./docs/screenshots/deliveries-dark.png)
+<details>
+<summary>使用命令行手工部署到 Cloudflare</summary>
 
-### 移动端 H5 适配
-一套前端自适应 360px 起小屏设备，提供移动端卡片视图、底部导航栏与悬浮快捷按钮：
+```bash
+pnpm install
+pnpm exec wrangler d1 create tickbell-db
+# 将返回的 database_id 填入 wrangler.jsonc 的 d1_databases[0].database_id
+pnpm run deploy
+```
 
-<p align="center">
-  <img src="./docs/screenshots/mobile-h5.png" width="320" alt="TickBell 移动端 H5 提醒列表" />
-</p>
+</details>
 
-## 快速部署（Docker Compose，推荐）
+---
+
+### 方式二：Docker Compose 单机自部署
 
 无需克隆源码，只需仓库根目录的 [`docker-compose.yml`](./docker-compose.yml) 一个文件（同时支持 `linux/amd64` 与 `linux/arm64`）：
 
 ```bash
 mkdir -p tickbell/data && cd tickbell
 chown -R 1000:1000 ./data   # Linux 宿主机授权给容器内 node 用户（uid=1000）
-# 将本项目根目录的 docker-compose.yml 保存到当前目录后启动：
 docker compose up -d
 ```
 
-启动后访问 `http://<服务器IP>:3000`，首次打开按页面向导设置管理密码、系统密钥与默认时区即可使用。后续升级只需执行 `docker compose pull && docker compose up -d`。
+启动后访问 `http://<服务器IP>:3000` 完成首次初始化。
 
-> 如需从源码自行构建镜像或查看 SQLite 恢复运维说明，详见 [`deploy/README.md`](./deploy/README.md)。
+> 从源码构建镜像、反向代理配置与运维备份详见 [`deploy/README.md`](./deploy/README.md)。
+
+---
+
+### 首次初始化
+
+无论采用哪种部署方式，首次访问站点都会进入初始化向导：
+
+1. 设置 **管理密码**（至少 6 位）与 **系统密钥**（支持一键随机生成）；
+2. 选择默认全局时区（如 `Asia/Shanghai`）；
+3. 提交后自动登录，密码以加盐 PBKDF2-SHA256 哈希保存在数据库中，可随时在「系统设置」修改。
+
+---
+
+## 内置通知渠道
+
+采用插件化渠道架构，开箱内置 7 种通知渠道，支持在网页端实时测试推送：
+
+| 渠道 | 主要特性 |
+| :--- | :--- |
+| **Bark** | 支持官方及自建服务；支持分组、通知级别、铃声、重复响铃、重要警告音量、图标与历史记录 |
+| **Telegram Bot** | 支持官方及自建 Bot API 代理、超级群组 Topic 话题、HTML 富文本排版、静默推送与防转发 |
+| **企业微信机器人** | 支持 `markdown`、`markdown_v2`、`text` 消息类型及 `@成员` / `@所有人` |
+| **钉钉机器人** | 支持加签（HMAC-SHA256）与自定义关键词校验、`markdown` / `text` 及 `@成员` / `@所有人` |
+| **飞书机器人** | 支持飞书 / Lark 签名校验与关键词、交互式富文本卡片（延迟送达自动标橙）与 `@所有人` |
+| **Server酱** | 自动识别 Server酱³（`sctp{uid}t...`）与 Server酱 Turbo（`SCT...`），支持通道与标签 |
+| **通用 Webhook** | 支持 `POST` / `PUT`、HMAC-SHA256 签名头（`X-Reminder-Timestamp` / `X-Reminder-Signature`）、自定义请求头与 JSON 模板 |
+
+---
+
+## 备份与双端迁移
+
+- **双向无损互迁**：在「系统设置 → 备份与恢复」导出的明文 JSON 备份（包含提醒、渠道、全局时区，不含登录密码与发送日志），可在 **Cloudflare 版 ↔ Docker 自部署版** 之间直接导入恢复。
+- **防重复推送保护**：导入恢复后所有提醒默认处于「暂停」状态，确认旧实例已停用后再启用即可。
+- **自动灾备**：Docker 版支持本地定时 JSON 备份与每日 SQLite `VACUUM INTO` 热备；Cloudflare 版可直接使用 D1 Time Travel 按时间点恢复。
+
+---
+
+## 界面预览
+
+<details>
+<summary>点击展开桌面端 / 移动端 / 深色模式截图</summary>
+
+| 提醒管理（桌面端） | 新建与编辑提醒 |
+| :---: | :---: |
+| ![提醒管理](./docs/screenshots/reminders-desktop.png) | ![提醒编辑器](./docs/screenshots/reminder-editor.png) |
+
+| 通知渠道管理 | 投递日志（深色模式） |
+| :---: | :---: |
+| ![通知渠道](./docs/screenshots/channels-desktop.png) | ![投递日志](./docs/screenshots/deliveries-dark.png) |
+
+</details>
+
+---
 
 ## 目录结构
 
 ```text
 tickbell/
-├─ docker-compose.yml       单文件开箱部署模板（直接拉取 wishmelz/tickbell:latest）
-├─ docs/
-│  ├─ screenshots/          README 界面预览截图
-│  ├─ API.md                前后端接口契约
-│  ├─ 通知渠道扩展计划.md     通知渠道插件化设计与规格
-│  └─ 重构方案.md            系统架构与设计决策记录
-├─ web/                     前端项目（Vue 3 + TypeScript + Vite 8 + Quasar 2）
-├─ server/                  后端项目（NestJS 11 + SQLite WAL）
-├─ deploy/                  Dockerfile（源码构建）、.env.example、部署与运维指南
-├─ CONTRIBUTING.md          开发与新增通知渠道贡献指南
-└─ LICENSE                  MIT License
+├─ package.json             根 pnpm Workspace（deploy / build / test / dev:* 脚本）
+├─ wrangler.jsonc           Cloudflare Workers + D1 + Assets + Cron + RateLimit 配置
+├─ docker-compose.yml       单文件 Docker Compose 开箱部署模板
+├─ migrations/
+│  ├─ d1/                   Cloudflare D1 数据库迁移
+│  └─ sqlite/               Node SQLite 数据库迁移
+├─ packages/core/           纯 Web Standards 共享业务核心（Hono API + 7 渠道 + 调度引擎）
+├─ apps/worker/             Cloudflare Workers 运行时（D1 + DoH SSRF 校验 + RateLimit + Cron）
+├─ apps/node/               Node / Docker 运行时（SQLite WAL + 代理池 + 磁盘自动备份）
+├─ web/                     前端工程（Vue 3 + TypeScript + Vite 8 + Quasar 2）
+├─ deploy/                  Dockerfile（源码多阶段构建）、.env.example 与运维指南
+└─ docs/                    API 文档与架构说明
 ```
 
-## 本地开发（双进程）
+---
 
-需要 Node.js 22+ 与 pnpm 10+。
+## 本地开发
 
-终端 1 — 启动后端（`:3000`）：
+环境要求：**Node.js 22+**、**pnpm 10+**。
 
 ```bash
-cd server
 pnpm install
-pnpm run start:dev
 ```
 
-终端 2 — 启动前端（`:5173`，自动代理 `/api` 到 `:3000`）：
+### 1. Cloudflare Workers 本地调试
 
 ```bash
-cd web
-pnpm install
-pnpm run dev
+pnpm run db:migrate:local
+pnpm run dev:cf
 ```
 
-浏览器访问 `http://localhost:5173`，首次打开会提示设置管理密码、会话密钥与默认时区。
+默认监听 `http://127.0.0.1:8787`。
 
-## 单进程一体打包与运行
+### 2. Node.js 本地双进程调试
 
 ```bash
-cd server
+# 终端 1：启动 Node 后端（:3000）
+pnpm run dev:node
+
+# 终端 2：启动 Vite 前端（:5173，自动代理 /api 到 :3000）
+pnpm run dev:web
+```
+
+### 3. 质量校验与构建
+
+```bash
+pnpm run typecheck
+pnpm run test
 pnpm run build:all
-pnpm run start:prod
+pnpm exec wrangler deploy --dry-run
 ```
 
-启动后访问 `http://localhost:3000` 即可同时使用前端页面与 `/api` 接口。
+---
 
-## 参与贡献
+## 相关文档与协议
 
-欢迎提交 Issue 与 PR！如果你希望接入更多通知渠道（如 Gotify、ntfy、PushDeer、SMTP 邮件等），请阅读 [`CONTRIBUTING.md`](./CONTRIBUTING.md) 中的插件开发指南。
-
-## 开源协议
-
-本项目基于 [MIT License](./LICENSE) 开源。
+- 部署与运维详解：[`deploy/README.md`](./deploy/README.md)
+- HTTP API 契约：[`docs/API.md`](./docs/API.md)
+- 2.0 架构与迁移设计：[`docs/2.0开发文案.md`](./docs/2.0开发文案.md)
+- 参与贡献：[`CONTRIBUTING.md`](./CONTRIBUTING.md)
+- 开源协议：[MIT License](./LICENSE)

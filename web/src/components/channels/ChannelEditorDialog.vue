@@ -6,12 +6,18 @@ import { channelBrand, icons } from '@/icons';
 import ChannelConfigForm from './ChannelConfigForm.vue';
 import { channelFormOverrides } from './channelFormOverrides';
 
-const props = defineProps<{
-  modelValue: boolean;
-  channel: ChannelView | null;
-  channelTypes: ChannelType[];
-  proxies: ProxyView[];
-}>();
+const props = withDefaults(
+  defineProps<{
+    modelValue: boolean;
+    channel: ChannelView | null;
+    channelTypes: ChannelType[];
+    proxies: ProxyView[];
+    showProxy?: boolean;
+  }>(),
+  {
+    showProxy: true,
+  },
+);
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean];
@@ -236,7 +242,7 @@ function close(): void {
           </div>
 
           <q-select
-            v-if="!isUnsupported"
+            v-if="!isUnsupported && props.showProxy"
             v-model="proxyId"
             :options="proxyOptions"
             option-label="label"

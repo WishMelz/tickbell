@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "tickbell",
+  "main": "apps/worker/src/index.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["global_fetch_strictly_public"],
+  "observability": {
+    "enabled": true
+  },
+  "assets": {
+    "directory": "./web/dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "tickbell-db",
+      "database_id": "",
+      "migrations_dir": "migrations/d1"
+    }
+  ],
+  "ratelimits": [
+    {
+      "name": "LOGIN_RATE_LIMITER",
+      "namespace_id": "1001",
+      "simple": { "limit": 5, "period": 60 }
+    }
+  ],
+  "triggers": {
+    "crons": ["* * * * *"]
+  },
+  "vars": {
+    "MISSED_GRACE_MINUTES": "60",
+    "DELIVERY_RETENTION_DAYS": "90",
+    "CRON_MAX_DELIVERIES_PER_TICK": "12",
+    "CRON_MAX_RETRIES_PER_TICK": "5"
+  }
+}

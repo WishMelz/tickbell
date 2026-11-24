@@ -1,0 +1,32 @@
+{
+  "name": "tickbell",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TickBell 2.0 — Multi-channel reminder system supporting Cloudflare Workers + D1 one-click deploy and self-hosted Docker + SQLite",
+  "license": "MIT",
+  "packageManager": "pnpm@12.21.0",
+  "engines": {
+    "node": ">=22",
+    "pnpm": ">=10"
+  },
+  "scripts": {
+    "dev:cf": "pnpm --filter tickbell-web build && wrangler dev",
+    "dev:node": "pnpm --filter tickbell-node dev",
+    "dev:web": "pnpm --filter tickbell-web dev",
+    "build:web": "pnpm --filter tickbell-web build",
+    "build:node": "pnpm --filter tickbell-node build",
+    "build": "pnpm run build:web",
+    "build:all": "pnpm run build:web && pnpm run build:node",
+    "deploy": "pnpm --filter tickbell-web build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "db:migrate:local": "wrangler d1 migrations apply DB --local",
+    "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
+    "typecheck": "pnpm --filter @tickbell/core typecheck && pnpm --filter tickbell-worker typecheck && pnpm --filter tickbell-node typecheck && pnpm --filter tickbell-web typecheck",
+    "test": "pnpm --filter @tickbell/core test && pnpm --filter tickbell-worker test && pnpm --filter tickbell-node test && pnpm --filter tickbell-web test"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.0",
+    "wrangler": "^4.40.2"
+  }
+}

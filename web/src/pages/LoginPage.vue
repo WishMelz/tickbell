@@ -232,7 +232,7 @@ onBeforeUnmount(() => {
             dense
             :type="showSecret ? 'text' : 'password'"
             label="系统密钥（至少 16 位，用于会话签名）*"
-            hint="可自定义输入，或点击右侧随机生成；保存后存放在本地数据库中"
+            hint="可自定义输入，或点击右侧随机生成；保存后持久化存放在数据库中"
             autocomplete="off"
             @update:model-value="formError = ''"
           >
@@ -307,7 +307,7 @@ onBeforeUnmount(() => {
       </template>
     </main>
     <p class="login-foot text-faint">
-      <span>TickBell · 轻量自部署提醒服务</span>
+      <span>TickBell · 轻量多渠道提醒服务</span>
       <span aria-hidden="true">·</span>
       <a
         class="foot-github"

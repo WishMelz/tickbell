@@ -22,6 +22,8 @@ import type {
   ReminderBatchResult,
   ReminderFilters,
   ReminderInput,
+  ReminderPage,
+  ReminderPageFilters,
   ReminderTestResult,
   ReminderView,
   Settings,
@@ -67,7 +69,26 @@ export const api = {
   // Reminders
   listReminders: (filters: ReminderFilters = {}, signal?: AbortSignal) =>
     request<ReminderView[]>('/reminders', {
-      query: { search: filters.search?.trim(), category: filters.category, tag: filters.tag, status: filters.status },
+      query: {
+        search: filters.search?.trim(),
+        category: filters.category,
+        tag: filters.tag,
+        status: filters.status,
+        sort: filters.sort,
+      },
+      signal,
+    }),
+  listRemindersPage: (filters: ReminderPageFilters, signal?: AbortSignal) =>
+    request<ReminderPage>('/reminders', {
+      query: {
+        search: filters.search?.trim(),
+        category: filters.category,
+        tag: filters.tag,
+        status: filters.status,
+        sort: filters.sort,
+        page: filters.page,
+        pageSize: filters.pageSize,
+      },
       signal,
     }),
   getReminder: (id: string) => request<ReminderView>(`/reminders/${enc(id)}`),

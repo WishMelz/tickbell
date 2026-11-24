@@ -3,7 +3,7 @@ import { defineConfig } from 'vite';
 import vue from '@vitejs/plugin-vue';
 import { quasar, transformAssetUrls } from '@quasar/vite-plugin';
 
-// TickBell 前端：开发时 /api 代理到 Nest（:3000），生产时 dist 交给 Nest 托管（见 docs/重构方案.md 3.5）
+// TickBell 前端：开发时 /api 代理到 Node 后端（:3000），生产时 dist 交由 Node 或 Cloudflare Assets 托管
 export default defineConfig({
   plugins: [
     vue({ template: { transformAssetUrls } }),

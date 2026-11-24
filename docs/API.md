@@ -1,13 +1,13 @@
 # TickBell API 契约
 
-> 本文件是 `server/`（NestJS）和 `web/`（Vue + Quasar）之间的**唯一接口契约**。改接口时先改本文件。
-> 设计背景见 [重构方案.md](./重构方案.md)：3.2 调度、3.3 表结构、3.4 接口清单、3.6 渠道扩展。
+> 本文件是后端（`@tickbell/core` Hono API，运行于 Cloudflare Workers 或 Node.js）和前端（`web/` Vue + Quasar）之间的**唯一接口契约**。改接口时先改本文件。
+> 设计背景见 [2.0开发文案.md](./2.0开发文案.md) 与 [重构方案.md](./重构方案.md)。
 
 ## 0. 通用约定
 
 | 项 | 约定 |
 | --- | --- |
-| 前缀 | 所有接口都在 `/api` 下（Nest `setGlobalPrefix('api')`） |
+| 前缀 | 所有接口都在 `/api` 下（Hono 路由前缀 `/api/*`） |
 | 格式 | 请求和响应都是 JSON（UTF-8） |
 | 成功 | HTTP 2xx，响应体 `{ "data": <payload> }`；没有返回内容时为 `{ "data": null }` |
 | 失败 | HTTP 4xx/5xx，响应体 `{ "error": "<中文可读信息>" }` |
@@ -21,16 +21,16 @@
 
 ### `GET /api/auth/status` — 公开
 ```json
-{ "data": { "initialized": true, "configured": true, "authenticated": false, "configurationIssue": null } }
+{ "data": { "runtime": "cloudflare", "initialized": true, "authenticated": false, "configurationIssue": null } }
 ```
+- `runtime`：当前运行形态，`"cloudflare"` 或 `"node"`。
 - `initialized`：`false` 表示首次启动尚未初始化，前端应展示「首次设置密码与密钥」界面；`true` 表示可直接登录。
-- `configured`：与 `initialized` 保持一致（兼容字段）。
 - `configurationIssue`：未初始化时为 `"missing"`，否则为 `null`。
 
 ### `POST /api/auth/setup` — 公开，限流：每个 IP 每 60 秒 5 次
-首次启动初始化管理员密码与系统密钥（持久化到 SQLite `settings`，后续启动无需环境变量）。
+首次启动初始化管理员密码与系统密钥（持久化到数据库 `settings` 表，后续启动无需环境变量）。
 请求体：`{ "password": "...", "secret": "...", "globalTimezone"?: "Asia/Shanghai" }`
-- `password`：至少 6 个字符，服务端以随机盐 `scrypt` 哈希存库。
+- `password`：至少 6 个字符，服务端以 Web Crypto 随机盐 `PBKDF2-SHA256`（100,000 次迭代）哈希存库。
 - `secret`：至少 16 个字符（前端支持手动填写或一键随机生成），用作会话签名密钥。
 - `globalTimezone`：可选，默认识别浏览器时区。
 成功返回 `{ "data": { "authenticated": true } }` 并自动设置登录 Cookie；若系统已完成初始化，返回 `409`。
@@ -173,8 +173,9 @@
 }
 ```
 
-### `GET /api/reminders?search=&category=&tag=&status=`
-返回所有未删除的提醒（`ReminderView[]`，按 `nextRunAt` 升序，不设条数上限），由前端分页。
+### `GET /api/reminders?search=&category=&tag=&status=&sort=&page=&pageSize=`
+- **分页模式（推荐，传入 `page` 或 `pageSize`）**：返回 `{ items: ReminderView[], total, page, pageSize, categories: string[], tags: string[] }`，`pageSize` 范围 1–100，`sort` 可取 `asc`（默认）或 `desc`。
+- **兼容模式（不传 `page`/`pageSize`）**：返回所有未删除的提醒数组 `ReminderView[]`（按 `nextRunAt` 排序，不设条数上限）。
 `status` 可取 `active`（启用且未完成）、`paused`（未启用且未完成）、`completed`；不传表示全部。`search` 用 LIKE 匹配标题、正文、分类、标签。
 ### `GET /api/reminders/:id` → `ReminderView`
 ### `POST /api/reminders` → 201 `ReminderView`
@@ -216,40 +217,48 @@
 ## 6. 系统 System
 
 ### `GET /api/health` — 公开
-正常时返回 200 `{ "data": { "status": "ok", "db": "ok", "scheduler": { "enabled": true, "lastTickAt": "...", "healthy": true } } }`。
-数据库不可用，或调度器已启用但超过 120 秒没有心跳时，返回 503，`status` 为 `"degraded"`。
+正常时返回 200 `{ "data": { "status": "ok", "runtime": "cloudflare" | "node", "db": "ok", "scheduler": { "enabled": true, "lastTickAt": "...", "healthy": true } } }`。
+数据库不可用，或调度器心跳超时时，返回 503，`status` 为 `"degraded"`。
 ### `GET /api/system/status`
 ```ts
 {
-  version: string; startedAt: string; uptimeSeconds: number; nodeVersion: string;
+  version: string;
+  runtime: 'cloudflare' | 'node';
+  runtimeLabel: string;
+  startedAt: string | null;
+  uptimeSeconds: number | null;
+  nodeVersion: string;
+  capabilities: {
+    proxies: boolean;
+    diskAutoBackup: boolean;
+    sqliteVacuumBackup: boolean;
+    minScheduleIntervalSec: number;
+    allowPrivateUrls: boolean;
+  };
   scheduler: { enabled: boolean; paused: boolean; intervalMs: number; lastTickAt: string | null; lastTickDurationMs: number | null };
   counts: { reminders: number; activeReminders: number; channels: number; retryingDeliveries: number };
   limits: { missedGraceMinutes: number; deliveryRetentionDays: number };
   backup: { lastBackupAt: string | null; lastBackupFile: string | null; keepDays: number };
 }
 ```
+> 当 `capabilities.proxies` 或 `capabilities.diskAutoBackup` 为 `false`（Cloudflare Workers 模式）时，调用 `/api/proxies*` 或 `/api/backup/auto*` 返回 `501 Not Implemented`。
 
 ## 7. 全量备份 Backup
 
-> 导出默认生成**可读明文 JSON**（`tickbell-full-backup` v2），无需设置备份密码。导入恢复时自动识别明文文件（同时兼容 `tips-full-backup` v1/v2 与旧版浏览器端加密备份 `tips-encrypted-backup` v1）。
+> 导出默认生成**可读明文 JSON**（`tickbell-full-backup`，`version: 2`），无需设置备份密码，支持 Cloudflare 版 ↔ Docker 自部署版双向导入恢复。
 
 ### 明文格式
-- **导入**接受 `format: "tickbell-full-backup"`（`version: 2`）以及兼容格式 `format: "tips-full-backup"`（`version: 1 | 2`）。
-- **导出**为 `format: "tickbell-full-backup", version: 2`，仅包含未删除提醒（`reminders`）、通知渠道（`channels`）、渠道关联（`reminderChannels`）与全局时区（`settings`），不包含发送日志（`deliveries`）与去重凭据（`receipts`）。
-- 导入时兼容含或不含 `deliveries` / `receipts` 字段的备份文件。
-
-v2 和 v1 的差异：
-- `deliveries[]` 多一个 `next_retry_at`，`status` 增加 `retrying` / `skipped` 两种取值。
-- `channels[]` 去掉 `legacy_encrypted_config`。
-- 其余字段（`settings`、`reminders`、`channels`、`reminderChannels`、`deliveries`、`receipts`）和 v1 相同，字段名用 snake_case，时间是毫秒时间戳。
+- 统一采用 `format: "tickbell-full-backup", version: 2`，字段名使用 `snake_case`，时间为毫秒时间戳。
+- **导出**包含未删除提醒（`reminders`）、通知渠道（`channels`）、网络代理（`proxies`）、渠道关联（`reminderChannels`）与全局时区（`settings`），不包含登录密码、系统密钥、发送日志（`deliveries`）与去重凭据（`receipts`）。
+- **导入**时 `proxies`、`deliveries`、`receipts` 字段均可选。
 
 ### `POST /api/backup/export` — 限流同登录
 请求体 `{ "password": "<管理密码>" }` → 明文备份对象。密码错误返回 400。
 ### `POST /api/backup/preview`
 请求体 `{ "backup": {...} }`，返回：
 ```ts
-{ reminders, activeReminders, deletedReminders, channels, unsupportedChannels, deliveries, pendingDeliveries,
-  globalTimezone, exportedAt, sourceVersion: 1 | 2,
+{ reminders, activeReminders, deletedReminders, channels, unsupportedChannels: number, deliveries, pendingDeliveries,
+  globalTimezone, exportedAt, sourceVersion: 2,
   remindersWithoutUsableChannel: { id: string; title: string }[] }
 ```
 ### `POST /api/backup/restore` — 限流同登录

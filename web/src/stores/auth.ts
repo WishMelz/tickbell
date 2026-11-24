@@ -29,12 +29,12 @@ export const useAuthStore = defineStore('auth', () => {
 
   async function setup(input: { password: string; secret: string; globalTimezone?: string }): Promise<void> {
     await api.setupAuth(input);
-    status.value = { initialized: true, configured: true, authenticated: true, configurationIssue: null };
+    status.value = { initialized: true, authenticated: true, configurationIssue: null };
   }
 
   async function login(password: string): Promise<void> {
     await api.login(password);
-    status.value = { initialized: true, configured: true, authenticated: true, configurationIssue: null };
+    status.value = { initialized: true, authenticated: true, configurationIssue: null };
   }
 
   async function logout(): Promise<void> {
@@ -48,7 +48,7 @@ export const useAuthStore = defineStore('auth', () => {
   /** 会话失效（401）或恢复备份后调用 */
   function clear(): void {
     if (status.value) status.value = { ...status.value, authenticated: false };
-    else status.value = { initialized: true, configured: true, authenticated: false, configurationIssue: null };
+    else status.value = { initialized: true, authenticated: false, configurationIssue: null };
   }
 
   return { status, initialized, authenticated, checked, ensureStatus, setup, login, logout, clear };

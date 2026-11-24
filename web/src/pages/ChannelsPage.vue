@@ -7,14 +7,17 @@ import { notifyError, notifySuccess, useResponsive } from '@/composables/useResp
 import { channelBrand, icons } from '@/icons';
 import { chipClass } from '@/utils/status';
 import { formatInstant } from '@/utils/time';
+import { useSettingsStore } from '@/stores/settings';
 
 const { isMobile } = useResponsive();
+const settings = useSettingsStore();
 const loading = ref(true);
 const initialized = ref(false);
 const channels = ref<ChannelView[]>([]);
 const channelTypes = ref<ChannelType[]>([]);
 const proxies = ref<ProxyView[]>([]);
 const typeFilter = ref('');
+const proxiesSupported = computed(() => settings.capabilities.proxies);
 
 const editorOpen = ref(false);
 const editingChannel = ref<ChannelView | null>(null);
@@ -45,10 +48,11 @@ const supportedTypesLabel = computed(() => {
 async function loadData(silent = false): Promise<void> {
   if (!silent) loading.value = true;
   try {
+    await settings.loadCapabilities();
     const [chList, types, proxyList] = await Promise.all([
       api.listChannels(),
       api.channelTypes(),
-      api.listProxies(),
+      settings.capabilities.proxies ? api.listProxies() : Promise.resolve([]),
     ]);
     channels.value = chList;
     channelTypes.value = types;
@@ -248,6 +252,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
       :channel="editingChannel"
       :channel-types="channelTypes"
       :proxies="proxies"
+      :show-proxy="proxiesSupported"
       @saved="loadData(true)"
     />
   </q-page>

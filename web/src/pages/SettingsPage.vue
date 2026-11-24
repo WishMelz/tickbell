@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { api, type SystemStatus } from '@/api';
 import TimezoneSelect from '@/components/TimezoneSelect.vue';
@@ -38,17 +38,28 @@ const themeModes: Array<{ label: string; value: ThemeMode; icon: string }> = [
   { label: '跟随系统', value: 'auto', icon: icons.themeAuto },
 ];
 
-async function loadAll(): Promise<void> {
+const isCloudflare = computed(() => (sysStatus.value?.runtime ?? settings.runtime) === 'cloudflare');
+const supportsProxies = computed(() => sysStatus.value?.capabilities?.proxies ?? settings.capabilities.proxies);
+const supportsDiskAutoBackup = computed(
+  () => sysStatus.value?.capabilities?.diskAutoBackup ?? settings.capabilities.diskAutoBackup,
+);
+
+async function loadAll(reloadChildren = false): Promise<void> {
   loadingStatus.value = true;
   try {
     const [, status] = await Promise.all([
       settings.load(true),
       api.systemStatus(),
-      proxySectionRef.value?.reload(),
-      backupSectionRef.value?.reload(),
     ]);
     selectedTimezone.value = settings.globalTimezone;
     sysStatus.value = status;
+    settings.setSystemStatus(status);
+    if (reloadChildren) {
+      await Promise.all([
+        status.capabilities?.proxies !== false ? proxySectionRef.value?.reload() : Promise.resolve(),
+        backupSectionRef.value?.reload(),
+      ]);
+    }
   } catch (error) {
     notifyError(error, '加载系统信息失败');
   } finally {
@@ -57,7 +68,7 @@ async function loadAll(): Promise<void> {
 }
 
 onMounted(() => {
-  void loadAll();
+  void loadAll(false);
 });
 
 async function saveTimezone(): Promise<void> {
@@ -120,7 +131,7 @@ async function handleLogout(): Promise<void> {
         <div class="sub">全局时区、外观主题、运行状态与全量备份</div>
       </div>
       <q-space />
-      <q-btn flat round :icon="icons.refresh" aria-label="刷新状态" :loading="loadingStatus" @click="loadAll">
+      <q-btn flat round :icon="icons.refresh" aria-label="刷新状态" :loading="loadingStatus" @click="loadAll(true)">
         <q-tooltip>刷新状态</q-tooltip>
       </q-btn>
     </div>
@@ -184,7 +195,13 @@ async function handleLogout(): Promise<void> {
           <q-icon :name="icons.monitor" size="20px" color="primary" />
           <div class="col">
             <h3 class="section-title">服务运行状态</h3>
-            <div class="text-muted text-caption">单机 NestJS + SQLite 进程健康指标与调度器心跳</div>
+            <div class="text-muted text-caption">
+              {{
+                isCloudflare
+                  ? 'Cloudflare Workers + D1 边缘运行指标与 Cron 调度心跳'
+                  : '单机 Hono + SQLite 进程健康指标与调度器心跳'
+              }}
+            </div>
           </div>
           <span
             v-if="sysStatus"
@@ -196,12 +213,16 @@ async function handleLogout(): Promise<void> {
 
         <div v-if="sysStatus" class="status-grid q-mt-md">
           <div class="stat">
-            <span class="text-muted">版本 / Node</span>
-            <strong>v{{ sysStatus.version }} · {{ sysStatus.nodeVersion }}</strong>
+            <span class="text-muted">版本 / 运行环境</span>
+            <strong>v{{ sysStatus.version }} · {{ sysStatus.runtimeLabel || sysStatus.nodeVersion }}</strong>
           </div>
-          <div class="stat">
+          <div v-if="sysStatus.uptimeSeconds !== null" class="stat">
             <span class="text-muted">已持续运行</span>
             <strong>{{ formatDuration(sysStatus.uptimeSeconds) }}</strong>
+          </div>
+          <div v-else class="stat">
+            <span class="text-muted">调度周期</span>
+            <strong>每 {{ Math.max(1, Math.round(sysStatus.scheduler.intervalMs / 1000)) }} 秒（Cron Trigger）</strong>
           </div>
           <div class="stat">
             <span class="text-muted">提醒数量</span>
@@ -220,9 +241,13 @@ async function handleLogout(): Promise<void> {
               </span>
             </strong>
           </div>
-          <div class="stat">
+          <div v-if="!isCloudflare" class="stat">
             <span class="text-muted">最近 SQLite 自动备份</span>
             <strong>{{ sysStatus.backup.lastBackupAt ? formatInstant(sysStatus.backup.lastBackupAt) : '暂无记录' }}</strong>
+          </div>
+          <div v-else class="stat">
+            <span class="text-muted">数据库灾备</span>
+            <strong>Cloudflare D1 Time Travel</strong>
           </div>
         </div>
       </div>
@@ -233,7 +258,7 @@ async function handleLogout(): Promise<void> {
           <q-icon :name="icons.lock" size="20px" color="primary" />
           <div>
             <h3 class="section-title">修改管理密码</h3>
-            <div class="text-muted text-caption">密码以加盐哈希保存在本地数据库，修改后其他设备的登录会自动失效。</div>
+            <div class="text-muted text-caption">密码以加盐哈希保存在数据库中，修改后其他设备的登录会自动失效。</div>
           </div>
         </div>
         <div class="pwd-row q-mt-md">
@@ -244,11 +269,11 @@ async function handleLogout(): Promise<void> {
         </div>
       </div>
 
-      <!-- 网络代理 -->
-      <ProxySection ref="proxySectionRef" />
+      <!-- 网络代理（仅自部署 Node/Docker 模式支持，等运行环境能力探测完成后再挂载，避免 CF 模式下误发 501 请求） -->
+      <ProxySection v-if="sysStatus && supportsProxies" ref="proxySectionRef" />
 
-      <!-- 备份与恢复 -->
-      <BackupSection ref="backupSectionRef" />
+      <!-- 备份与恢复（等能力探测完成后再挂载，避免 CF 模式下误请求本地自动备份接口） -->
+      <BackupSection v-if="sysStatus" ref="backupSectionRef" :disk-auto-backup="supportsDiskAutoBackup" />
 
       <!-- 移动端退出登录按钮 -->
       <div v-if="isMobile" class="q-pt-xs">
