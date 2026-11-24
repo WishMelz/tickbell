@@ -7,7 +7,7 @@ import ReminderEditorDialog from '@/components/reminders/ReminderEditorDialog.vu
 import { confirmDialog } from '@/composables/dialogs';
 import { tabbarHidden } from '@/composables/layoutState';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
-import { icons } from '@/icons';
+import { channelBrand, icons } from '@/icons';
 import { useSettingsStore } from '@/stores/settings';
 import { chipClass, reminderStatus } from '@/utils/status';
 import { formatLocal, formatLocalFriendly, formatRelative, repeatText } from '@/utils/time';
@@ -365,6 +365,35 @@ function isChannelUnsupported(id: string): boolean {
   return Boolean(ch && !ch.supported);
 }
 
+function isChannelAbnormal(id: string): boolean {
+  const ch = channelMap.value.get(id);
+  return Boolean(!ch || !ch.supported || !ch.enabled || !ch.configured);
+}
+
+function channelDotColor(id: string): string {
+  const ch = channelMap.value.get(id);
+  if (!ch) return 'var(--app-text-3)';
+  if (!ch.supported || !ch.enabled || !ch.configured) return 'var(--q-warning)';
+  return channelBrand(ch.type).color;
+}
+
+function channelTooltipLine(id: string): string {
+  const ch = channelMap.value.get(id);
+  if (!ch) return '未知渠道';
+  if (!ch.supported) return `${ch.name}（暂不支持）`;
+  if (!ch.enabled) return `${ch.name}（已停用）`;
+  if (!ch.configured) return `${ch.name}（未配置）`;
+  return ch.name;
+}
+
+function visibleChannels(ids: string[], limit = 1): string[] {
+  return ids.slice(0, limit);
+}
+
+function hiddenChannels(ids: string[], limit = 1): string[] {
+  return ids.slice(limit);
+}
+
 function visibleTags(row: ReminderView): string[] {
   const limit = row.category ? 2 : 3;
   return row.tags.slice(0, limit);
@@ -549,9 +578,9 @@ function tooltipContent(text: string): string {
       </template>
 
       <template #body-cell-nextRun="props">
-        <q-td :props="props">
-          <div class="text-weight-medium">{{ formatLocal(props.row.nextRunLocal) }}</div>
-          <div class="text-caption text-muted">
+        <q-td :props="props" class="next-run-cell">
+          <div class="next-run-main">{{ formatLocal(props.row.nextRunLocal) }}</div>
+          <div class="next-run-sub text-muted">
             {{ props.row.timezone }}
             <span v-if="!props.row.completed"> · {{ formatRelative(props.row.nextRunAt) }}</span>
           </div>
@@ -559,28 +588,38 @@ function tooltipContent(text: string): string {
       </template>
 
       <template #body-cell-repeat="props">
-        <q-td :props="props">
+        <q-td :props="props" class="repeat-cell">
           <span>{{ repeatText(props.row.isRepeating, props.row.repeatEvery, props.row.repeatUnit) }}</span>
         </q-td>
       </template>
 
       <template #body-cell-channels="props">
-        <q-td :props="props">
-          <div class="tag-row">
+        <q-td :props="props" class="channels-cell">
+          <div class="channel-cell-row">
             <span
-              v-for="cid in props.row.channelIds"
+              v-for="cid in visibleChannels(props.row.channelIds, 1)"
               :key="cid"
-              class="tag-pill"
-              :class="{ 'text-warning': isChannelUnsupported(cid) }"
+              class="tag-pill channel-pill"
+              :class="{ 'channel-pill--warn': isChannelAbnormal(cid) || isChannelUnsupported(cid) }"
             >
-              {{ channelName(cid) }}
+              <span class="channel-dot" :style="{ background: channelDotColor(cid) }" />
+              <span class="channel-pill-text">{{ channelName(cid) }}</span>
+              <q-tooltip anchor="top middle" self="bottom middle" :offset="[0, 6]" :delay="200">
+                {{ channelTooltipLine(cid) }}
+              </q-tooltip>
+            </span>
+            <span v-if="hiddenChannels(props.row.channelIds, 1).length" class="tag-pill tag-pill--more channel-more">
+              +{{ hiddenChannels(props.row.channelIds, 1).length }}
+              <q-tooltip anchor="top middle" self="bottom middle" :offset="[0, 6]" class="reminder-preview-tooltip">
+                {{ props.row.channelIds.map(channelTooltipLine).join('\n') }}
+              </q-tooltip>
             </span>
           </div>
         </q-td>
       </template>
 
       <template #body-cell-status="props">
-        <q-td :props="props">
+        <q-td :props="props" class="status-cell">
           <span :class="chipClass(reminderStatus(props.row).tone)">
             {{ reminderStatus(props.row).label }}
           </span>
@@ -700,9 +739,20 @@ function tooltipContent(text: string): string {
             </div>
 
             <div class="card-bottom">
-              <div class="tag-row">
+              <div class="tag-row tag-row--compact">
                 <span v-if="item.category" class="tag-pill tag-pill--category">{{ item.category }}</span>
-                <span v-for="cid in item.channelIds" :key="cid" class="tag-pill">{{ channelName(cid) }}</span>
+                <span
+                  v-for="cid in visibleChannels(item.channelIds, 2)"
+                  :key="cid"
+                  class="tag-pill channel-pill"
+                  :class="{ 'channel-pill--warn': isChannelAbnormal(cid) }"
+                >
+                  <span class="channel-dot" :style="{ background: channelDotColor(cid) }" />
+                  <span class="channel-pill-text">{{ channelName(cid) }}</span>
+                </span>
+                <span v-if="hiddenChannels(item.channelIds, 2).length" class="tag-pill tag-pill--more">
+                  +{{ hiddenChannels(item.channelIds, 2).length }}
+                </span>
               </div>
               <div v-if="!mobileSelectMode" class="card-actions" @click.stop>
                 <q-btn flat round dense class="touch-44" :icon="icons.history" aria-label="日志" @click="openDeliveries(item)" />
@@ -808,11 +858,25 @@ function tooltipContent(text: string): string {
   align-items: center;
   gap: 8px;
 }
+.app-table {
+  :deep(thead th) {
+    padding: 11px 12px;
+    font-weight: 600;
+    color: var(--app-text-2);
+  }
+  :deep(tbody td) {
+    padding: 13px 12px;
+    vertical-align: middle;
+  }
+}
 .title-cell {
-  max-width: 360px;
+  min-width: 260px;
+  max-width: 380px;
   white-space: normal;
 }
 .row-title {
+  font-size: 14px;
+  line-height: 1.45;
   font-weight: 600;
   cursor: pointer;
   overflow: hidden;
@@ -824,18 +888,77 @@ function tooltipContent(text: string): string {
 }
 .row-desc {
   font-size: 12.5px;
-  margin-top: 2px;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  line-height: 1.45;
+  margin-top: 4px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   cursor: default;
+}
+.next-run-cell {
+  white-space: nowrap;
+  width: 170px;
+}
+.next-run-main {
+  font-size: 13.5px;
+  font-weight: 550;
+  line-height: 1.4;
+}
+.next-run-sub {
+  font-size: 12px;
+  line-height: 1.4;
+  margin-top: 3px;
+}
+.repeat-cell {
+  white-space: nowrap;
+  width: 88px;
+}
+.channels-cell {
+  width: 204px;
+  max-width: 214px;
+}
+.channel-cell-row {
+  display: flex;
+  align-items: center;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+.channel-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 156px;
+  min-width: 0;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+.channel-pill--warn {
+  border-color: color-mix(in srgb, var(--q-warning) 45%, transparent);
+  color: color-mix(in srgb, var(--q-warning) 85%, var(--app-text));
+}
+.channel-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.channel-pill-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.channel-more {
+  cursor: pointer;
+}
+.status-cell {
+  white-space: nowrap;
+  width: 92px;
 }
 .tag-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
-  margin-top: 6px;
+  gap: 6px;
+  margin-top: 7px;
 }
 .tag-row--compact {
   flex-wrap: nowrap;
@@ -868,6 +991,7 @@ function tooltipContent(text: string): string {
 }
 .actions-cell {
   white-space: nowrap;
+  width: 132px;
 }
 
 .mobile-grid {
@@ -929,6 +1053,11 @@ function tooltipContent(text: string): string {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  .tag-row {
+    margin-top: 0;
+    min-width: 0;
+    flex: 1;
+  }
 }
 .card-actions {
   display: flex;
