@@ -36,11 +36,13 @@ export interface ReminderListFilters {
   status?: ReminderStatusFilter;
 }
 
+const SQL_IN_CHUNK_SIZE = 500;
+
 @Injectable()
 export class RemindersRepository {
   constructor(private readonly database: DatabaseService) {}
 
-  findAll(filters: ReminderListFilters, limit: number): ReminderRow[] {
+  findAll(filters: ReminderListFilters): ReminderRow[] {
     const conditions: string[] = ['deleted_at IS NULL'];
     const bindings: unknown[] = [];
 
@@ -68,13 +70,11 @@ export class RemindersRepository {
       conditions.push('completed = 1');
     }
 
-    bindings.push(limit);
     return this.database.db
       .prepare(
         `SELECT * FROM reminders
          WHERE ${conditions.join(' AND ')}
-         ORDER BY next_run_at ASC
-         LIMIT ?`,
+         ORDER BY next_run_at ASC`,
       )
       .all(...bindings) as ReminderRow[];
   }
@@ -89,10 +89,16 @@ export class RemindersRepository {
 
   findByIds(ids: string[]): ReminderRow[] {
     if (!ids.length) return [];
-    const placeholders = ids.map(() => '?').join(',');
-    return this.database.db
-      .prepare(`SELECT * FROM reminders WHERE id IN (${placeholders}) AND deleted_at IS NULL`)
-      .all(...ids) as ReminderRow[];
+    const results: ReminderRow[] = [];
+    for (let i = 0; i < ids.length; i += SQL_IN_CHUNK_SIZE) {
+      const chunk = ids.slice(i, i + SQL_IN_CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = this.database.db
+        .prepare(`SELECT * FROM reminders WHERE id IN (${placeholders}) AND deleted_at IS NULL`)
+        .all(...chunk) as ReminderRow[];
+      results.push(...rows);
+    }
+    return results;
   }
 
   countActive(): number {
@@ -112,18 +118,21 @@ export class RemindersRepository {
   getChannelIdsMap(reminderIds: string[]): Map<string, string[]> {
     const map = new Map<string, string[]>();
     if (!reminderIds.length) return map;
-    const placeholders = reminderIds.map(() => '?').join(',');
-    const rows = this.database.db
-      .prepare(
-        `SELECT reminder_id, channel_id FROM reminder_channels
-         WHERE reminder_id IN (${placeholders})
-         ORDER BY channel_id`,
-      )
-      .all(...reminderIds) as Array<{ reminder_id: string; channel_id: string }>;
-    for (const row of rows) {
-      const list = map.get(row.reminder_id);
-      if (list) list.push(row.channel_id);
-      else map.set(row.reminder_id, [row.channel_id]);
+    for (let i = 0; i < reminderIds.length; i += SQL_IN_CHUNK_SIZE) {
+      const chunk = reminderIds.slice(i, i + SQL_IN_CHUNK_SIZE);
+      const placeholders = chunk.map(() => '?').join(',');
+      const rows = this.database.db
+        .prepare(
+          `SELECT reminder_id, channel_id FROM reminder_channels
+           WHERE reminder_id IN (${placeholders})
+           ORDER BY channel_id`,
+        )
+        .all(...chunk) as Array<{ reminder_id: string; channel_id: string }>;
+      for (const row of rows) {
+        const list = map.get(row.reminder_id);
+        if (list) list.push(row.channel_id);
+        else map.set(row.reminder_id, [row.channel_id]);
+      }
     }
     return map;
   }

@@ -205,7 +205,7 @@ async function handleLogout(): Promise<void> {
           </div>
           <div class="stat">
             <span class="text-muted">提醒数量</span>
-            <strong>{{ sysStatus.counts.reminders }} / {{ sysStatus.limits.maxReminders }}（运行中 {{ sysStatus.counts.activeReminders }}）</strong>
+            <strong>{{ sysStatus.counts.reminders }} 条（运行中 {{ sysStatus.counts.activeReminders }}）</strong>
           </div>
           <div class="stat">
             <span class="text-muted">渠道 / 待重试</span>

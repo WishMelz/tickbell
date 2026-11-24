@@ -50,7 +50,6 @@ afterEach(async () => {
 
 async function createTestApp(options?: {
   dbPath?: string;
-  maxReminders?: number;
   missedGraceMinutes?: number;
   extraProviders?: ChannelProvider[];
   uninitialized?: boolean;
@@ -67,7 +66,6 @@ async function createTestApp(options?: {
     SESSION_SECRET: options?.uninitialized ? '' : 'test-session-secret-0123456789',
     DB_PATH: options?.dbPath ?? ':memory:',
     SCHEDULER_ENABLED: 'false',
-    MAX_REMINDERS: String(options?.maxReminders ?? 500),
     MISSED_GRACE_MINUTES: String(options?.missedGraceMinutes ?? 60),
     COOKIE_SECURE: 'false',
     LOG_LEVEL: 'silent',
@@ -171,7 +169,7 @@ describe('TickBell end-to-end integration', () => {
   });
 
   it('supports Bark channel CRUD, reminder CRUD/batch/enable rules, and global timezone updates', async () => {
-    const { app, loginCookie } = await createTestApp({ maxReminders: 3 });
+    const { app, loginCookie } = await createTestApp();
     const server = app.getHttpServer();
     const cookie = await loginCookie();
 
@@ -310,7 +308,8 @@ describe('TickBell end-to-end integration', () => {
     // System status & unknown API 404
     const sysStatus = await request(server).get('/api/system/status').set('Cookie', cookie).expect(200);
     expect(sysStatus.body.data.counts.channels).toBe(1);
-    expect(sysStatus.body.data.limits.maxReminders).toBe(3);
+    expect(sysStatus.body.data.counts.reminders).toBe(1);
+    expect(sysStatus.body.data.limits.maxReminders).toBeUndefined();
 
     const notFoundApi = await request(server).get('/api/unknown-route').set('Cookie', cookie).expect(404);
     expect(notFoundApi.body.error).toBe('接口不存在');

@@ -50,7 +50,7 @@ pnpm run start:dev
 - `PORT`（默认 `3000`）、`DB_PATH`（默认 `./data/tickbell.db`）
 - `COOKIE_SECURE`（默认 `auto`，根据 HTTPS 请求自动开启）
 - `ALLOW_PRIVATE_URLS`（默认 `true`，允许推送到自建内网 / Docker / 本机通知地址；设为 `false` 可启用严格公网 SSRF 校验并配合 `ALLOWED_PRIVATE_HOSTS`）
-- `MAX_REMINDERS`（默认 `500`）、`MISSED_GRACE_MINUTES`（默认 `60`）、`DELIVERY_RETENTION_DAYS`（默认 `90`）
+- `MISSED_GRACE_MINUTES`（默认 `60`）、`DELIVERY_RETENTION_DAYS`（默认 `90`）
 
 ## 新增通知渠道
 

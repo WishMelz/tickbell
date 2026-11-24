@@ -72,7 +72,6 @@ export const envSchema = z
     SCHEDULER_ENABLED: booleanVar(true),
     SCHEDULER_INTERVAL_MS: intVar(15_000, 1_000, 3_600_000),
     MISSED_GRACE_MINUTES: intVar(60, 0, 10_080),
-    MAX_REMINDERS: intVar(500, 1, 100_000),
     DELIVERY_RETENTION_DAYS: intVar(90, 1, 36_500),
     BACKUP_KEEP_DAYS: intVar(14, 1, 36_500),
     BACKUP_CRON: stringVar('0 3 * * *'),
@@ -107,7 +106,6 @@ export interface AppConfig {
   schedulerEnabled: boolean;
   schedulerIntervalMs: number;
   missedGraceMinutes: number;
-  maxReminders: number;
   deliveryRetentionDays: number;
   backupKeepDays: number;
   backupCron: string;
@@ -158,7 +156,6 @@ export function loadAppConfig(source: Record<string, unknown>, cwd = process.cwd
     schedulerEnabled: env.SCHEDULER_ENABLED,
     schedulerIntervalMs: env.SCHEDULER_INTERVAL_MS,
     missedGraceMinutes: env.MISSED_GRACE_MINUTES,
-    maxReminders: env.MAX_REMINDERS,
     deliveryRetentionDays: env.DELIVERY_RETENTION_DAYS,
     backupKeepDays: env.BACKUP_KEEP_DAYS,
     backupCron: env.BACKUP_CRON.trim(),

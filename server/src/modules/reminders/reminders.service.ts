@@ -1,9 +1,8 @@
 import * as crypto from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { notFound, ValidationError } from '../../common/errors';
 import { calculateNextFutureRun, type RepeatUnit } from '../../common/repeat';
 import { epochToIso, epochToLocalInput } from '../../common/time';
-import { APP_CONFIG, type AppConfig } from '../../config/app-config';
 import { ChannelsRepository } from '../channels/channels.repository';
 import { ChannelsService } from '../channels/channels.service';
 import { DatabaseService } from '../database/database.service';
@@ -58,7 +57,6 @@ export interface ReminderTestResult {
 @Injectable()
 export class RemindersService {
   constructor(
-    @Inject(APP_CONFIG) private readonly config: AppConfig,
     private readonly database: DatabaseService,
     private readonly repo: RemindersRepository,
     private readonly channelsRepo: ChannelsRepository,
@@ -121,7 +119,7 @@ export class RemindersService {
       tag: query.tag?.trim() || undefined,
       status,
     };
-    const rows = this.repo.findAll(filters, this.config.maxReminders);
+    const rows = this.repo.findAll(filters);
     const globalTimezone = this.settings.getGlobalTimezone();
     const channelMap = this.repo.getChannelIdsMap(rows.map((r) => r.id));
     return rows.map((row) => this.toView(row, channelMap.get(row.id) ?? [], globalTimezone));
@@ -143,9 +141,6 @@ export class RemindersService {
     const now = Date.now();
 
     this.database.transaction(() => {
-      if (this.repo.countActive() >= this.config.maxReminders) {
-        throw new ValidationError(`提醒数量已达到 ${this.config.maxReminders} 条上限`);
-      }
       this.ensureChannelsExist(input.channelIds);
       this.repo.insert(
         {
@@ -259,7 +254,7 @@ export class RemindersService {
   }
 
   batch(raw: unknown, now = Date.now()): ReminderBatchResult {
-    const input = validateReminderBatchInput(raw, Math.max(500, this.config.maxReminders));
+    const input = validateReminderBatchInput(raw);
 
     return this.database.transaction(() => {
       if (input.action === 'channels') {

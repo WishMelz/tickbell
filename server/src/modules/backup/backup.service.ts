@@ -364,11 +364,6 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
       throw new ValidationError('备份全局时区无效');
     }
 
-    const activeCount = normalized.reminders.filter((r) => r.deleted_at === null).length;
-    if (activeCount > this.config.maxReminders) {
-      throw new ValidationError(`未删除提醒不能超过 ${this.config.maxReminders} 条`);
-    }
-
     const proxyIds = assertUnique(normalized.proxies.map((r) => r.id), '代理 ID');
     const reminderIds = assertUnique(normalized.reminders.map((r) => r.id), '提醒 ID');
     const channelIds = assertUnique(normalized.channels.map((r) => r.id), '渠道 ID');

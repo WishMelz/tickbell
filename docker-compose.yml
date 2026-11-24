@@ -26,7 +26,6 @@ services:
       # 可选配置（默认已适配常见场景，按需取消注释修改）：
       # COOKIE_SECURE: "auto"          # auto 自动识别 HTTP/HTTPS；纯 HTTPS 反代可改 true
       # ALLOW_PRIVATE_URLS: "true"     # 允许推送到内网 / Docker 自建通知服务（如自建 Bark）
-      # MAX_REMINDERS: "500"           # 提醒条数上限
       # MISSED_GRACE_MINUTES: "60"     # 服务重启错过提醒的补发宽限窗口（分钟）
       # DELIVERY_RETENTION_DAYS: "90"  # 投递日志保留天数
       # BACKUP_KEEP_DAYS: "14"         # 每日 SQLite 自动备份保留天数

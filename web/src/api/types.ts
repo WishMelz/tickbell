@@ -275,7 +275,7 @@ export interface SystemStatus {
     lastTickDurationMs: number | null;
   };
   counts: { reminders: number; activeReminders: number; channels: number; retryingDeliveries: number };
-  limits: { maxReminders: number; missedGraceMinutes: number; deliveryRetentionDays: number };
+  limits: { missedGraceMinutes: number; deliveryRetentionDays: number };
   backup: { lastBackupAt: string | null; lastBackupFile: string | null; keepDays: number };
 }
 

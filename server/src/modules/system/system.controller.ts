@@ -75,7 +75,6 @@ export class SystemController {
         retryingDeliveries: this.deliveriesRepo.countRetrying(),
       },
       limits: {
-        maxReminders: this.config.maxReminders,
         missedGraceMinutes: this.config.missedGraceMinutes,
         deliveryRetentionDays: this.config.deliveryRetentionDays,
       },

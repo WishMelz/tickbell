@@ -174,11 +174,10 @@
 ```
 
 ### `GET /api/reminders?search=&category=&tag=&status=`
-返回所有未删除的提醒（`ReminderView[]`，按 `nextRunAt` 升序，最多 `MAX_REMINDERS` 条），由前端分页。
+返回所有未删除的提醒（`ReminderView[]`，按 `nextRunAt` 升序，不设条数上限），由前端分页。
 `status` 可取 `active`（启用且未完成）、`paused`（未启用且未完成）、`completed`；不传表示全部。`search` 用 LIKE 匹配标题、正文、分类、标签。
 ### `GET /api/reminders/:id` → `ReminderView`
 ### `POST /api/reminders` → 201 `ReminderView`
-数量达到 `MAX_REMINDERS` 时返回 400：「提醒数量已达到 N 条上限」。
 ### `PUT /api/reminders/:id` → `ReminderView`
 计划变更（`scheduledLocal`、`timezone`、重复规则任一项变化）时：`next_run_at` 重置为新的 `starts_at`；已完成的提醒恢复成启用、未完成；`schedule_version` 加 1。
 ### `DELETE /api/reminders/:id` → `null`（软删除，同时删掉渠道关联）
@@ -188,7 +187,7 @@
 - 单次提醒且时间已过：返回 400「提醒时间已过，请先修改时间」。
 ### `POST /api/reminders/:id/disable` → `ReminderView`
 ### `POST /api/reminders/batch`
-请求体 `{ "ids": string[1..500], "action": "enable" | "disable" | "delete" | "channels", "channelIds"?: string[] }` → `{ "updated": n, "skipped": m }`
+请求体 `{ "ids": string[], "action": "enable" | "disable" | "delete" | "channels", "channelIds"?: string[] }` → `{ "updated": n, "skipped": m }`
 `channels` 表示**替换**渠道，必须提供至少一个 `channelIds`。整批在一个事务里完成。`enable` 的规则和单条启用相同，不符合条件的计入 `skipped`。
 ### `POST /api/reminders/test`
 请求体是 `ReminderInput`（不保存）→ `[{ "channelId", "channelName", "ok", "error" }]`。
@@ -225,7 +224,7 @@
   version: string; startedAt: string; uptimeSeconds: number; nodeVersion: string;
   scheduler: { enabled: boolean; paused: boolean; intervalMs: number; lastTickAt: string | null; lastTickDurationMs: number | null };
   counts: { reminders: number; activeReminders: number; channels: number; retryingDeliveries: number };
-  limits: { maxReminders: number; missedGraceMinutes: number; deliveryRetentionDays: number };
+  limits: { missedGraceMinutes: number; deliveryRetentionDays: number };
   backup: { lastBackupAt: string | null; lastBackupFile: string | null; keepDays: number };
 }
 ```

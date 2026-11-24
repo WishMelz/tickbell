@@ -167,22 +167,24 @@ export function validateReminderInput(
   };
 }
 
-export function validateReminderBatchInput(value: unknown, maxBatch = 500): ValidatedReminderBatchInput {
+export function validateReminderBatchInput(value: unknown): ValidatedReminderBatchInput {
   const body = assertObject(value);
 
-  const parseIds = (raw: unknown, label: string, max: number): string[] => {
+  const parseIds = (raw: unknown, label: string, max?: number): string[] => {
     if (
       !Array.isArray(raw)
       || raw.length === 0
-      || raw.length > max
+      || (max !== undefined && raw.length > max)
       || raw.some((item) => typeof item !== 'string' || !item.trim() || item.trim().length > 128)
     ) {
-      throw new ValidationError(`${label}必须包含 1 到 ${max} 个有效 ID`);
+      throw new ValidationError(
+        max !== undefined ? `${label}必须包含 1 到 ${max} 个有效 ID` : `${label}必须包含至少 1 个有效 ID`,
+      );
     }
     return [...new Set((raw as string[]).map((item) => item.trim()))];
   };
 
-  const ids = parseIds(body.ids, '提醒列表', maxBatch);
+  const ids = parseIds(body.ids, '提醒列表');
   if (body.action === 'enable' || body.action === 'disable' || body.action === 'delete') {
     return { ids, action: body.action };
   }
