@@ -226,7 +226,7 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
       {
         NODE_ENV: 'test',
         DB_PATH: path.join(dir, 'demo.db'),
-        DEMO_MAX_REMINDERS: '8',
+        DEMO_MAX_REMINDERS: '15',
         DEMO_MAX_CHANNELS: '6',
         DEMO_TEST_RATE_LIMIT: '2',
         COOKIE_SECURE: 'false',
@@ -275,16 +275,16 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
     const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
     const headers = { 'Content-Type': 'application/json', Cookie: cookie };
 
-    // 3. Seeded channels (5), reminders (7), and deliveries (7) are preloaded
+    // 3. Seeded channels (5), reminders (14), and deliveries (8) are preloaded
     const sysStatus = await json(await req('/api/system/status', { headers }));
     expect(sysStatus.data.demo.enabled).toBe(true);
     expect(sysStatus.data.counts.channels).toBe(5);
-    expect(sysStatus.data.counts.reminders).toBe(7);
+    expect(sysStatus.data.counts.reminders).toBe(14);
     expect(sysStatus.data.capabilities.proxies).toBe(false);
     expect(sysStatus.data.capabilities.diskAutoBackup).toBe(false);
 
     const deliveriesPage = await json(await req('/api/deliveries?page=1&pageSize=20', { headers }));
-    expect(deliveriesPage.data.total).toBe(7);
+    expect(deliveriesPage.data.total).toBe(8);
 
     // 4. High-risk operations strictly return 403
     expect((await req('/api/auth/setup', { method: 'POST', headers, body: '{}' })).status).toBe(403);
@@ -302,7 +302,7 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
     expect((await req('/api/backup/restore', { method: 'POST', headers, body: '{}' })).status).toBe(403);
     expect((await req('/api/backup/auto', { headers })).status).toBe(403);
     expect(
-      (await req('/api/deliveries/33333333-3333-4333-8333-333333333306/retry', { method: 'POST', headers })).status,
+      (await req('/api/deliveries/33333333-3333-4333-8333-333333333307/retry', { method: 'POST', headers })).status,
     ).toBe(403);
 
     // 5. Private URL SSRF blocked in demo mode
@@ -366,10 +366,10 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
     expect((await req('/api/reminders/test', { method: 'POST', headers, body: JSON.stringify(remPayload) })).status).toBe(200);
     expect((await req(`/api/channels/${createdChannelId}/test`, { method: 'POST', headers })).status).toBe(429);
 
-    // 9. Daily reset restores exact seeded counts (5 channels, 7 reminders) and keeps login working
+    // 9. Daily reset restores exact seeded counts (5 channels, 14 reminders) and keeps login working
     await runtime.resetDemoData();
     const afterReset = await json(await req('/api/system/status', { headers }));
     expect(afterReset.data.counts.channels).toBe(5);
-    expect(afterReset.data.counts.reminders).toBe(7);
+    expect(afterReset.data.counts.reminders).toBe(14);
   });
 });

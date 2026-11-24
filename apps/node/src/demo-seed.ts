@@ -16,19 +16,26 @@ import {
 
 const DEMO_TIMEZONE = 'Asia/Shanghai';
 
-const CH_BARK = '11111111-1111-4111-8111-111111111101';
-const CH_TELEGRAM = '11111111-1111-4111-8111-111111111102';
-const CH_WECOM = '11111111-1111-4111-8111-111111111103';
-const CH_FEISHU = '11111111-1111-4111-8111-111111111104';
-const CH_WEBHOOK = '11111111-1111-4111-8111-111111111105';
+const CH_BARK_OFFICIAL = '11111111-1111-4111-8111-111111111101';
+const CH_BARK_BACKUP = '11111111-1111-4111-8111-111111111102';
+const CH_TELEGRAM = '11111111-1111-4111-8111-111111111103';
+const CH_WECOM = '11111111-1111-4111-8111-111111111104';
+const CH_FEISHU = '11111111-1111-4111-8111-111111111105';
 
-const REM_STANDUP = '22222222-2222-4222-8222-222222222201';
-const REM_WATER = '22222222-2222-4222-8222-222222222202';
-const REM_BILL = '22222222-2222-4222-8222-222222222203';
-const REM_REVIEW = '22222222-2222-4222-8222-222222222204';
-const REM_PROBE = '22222222-2222-4222-8222-222222222205';
-const REM_RUN = '22222222-2222-4222-8222-222222222206';
-const REM_CERT = '22222222-2222-4222-8222-222222222207';
+const REM_GPT = '22222222-2222-4222-8222-222222222201';
+const REM_O2 = '22222222-2222-4222-8222-222222222202';
+const REM_GV = '22222222-2222-4222-8222-222222222203';
+const REM_LEBARA = '22222222-2222-4222-8222-222222222204';
+const REM_VOXI = '22222222-2222-4222-8222-222222222205';
+const REM_A1 = '22222222-2222-4222-8222-222222222206';
+const REM_DIALOG = '22222222-2222-4222-8222-222222222207';
+const REM_AIS = '22222222-2222-4222-8222-222222222208';
+const REM_CSL = '22222222-2222-4222-8222-222222222209';
+const REM_RN = '22222222-2222-4222-8222-222222222210';
+const REM_DMIT = '22222222-2222-4222-8222-222222222211';
+const REM_BWG = '22222222-2222-4222-8222-222222222212';
+const REM_SAILY = '22222222-2222-4222-8222-222222222213';
+const REM_DOMAIN = '22222222-2222-4222-8222-222222222214';
 
 function dayAtLocal(baseMs: number, offsetDays: number, hhmm: string, tz = DEMO_TIMEZONE): number {
   const shifted = baseMs + offsetDays * 24 * 60 * 60 * 1000;
@@ -88,34 +95,54 @@ export async function isDemoDatabaseEmpty(db: DbAdapter): Promise<boolean> {
 }
 
 /**
- * Atomically wipes business tables and restores curated demo channels, reminders (single/repeat/rich-text),
- * and delivery logs relative to `now`, while preserving demo login credentials.
+ * Atomically wipes business tables and restores curated, anonymized demo data
+ * (overseas eSIM/SIM keep-alive, VPS renewal, AI subscription reminders, channels & delivery logs)
+ * relative to `now`, while preserving demo login credentials.
  */
 export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<void> {
-  const createdBase = now - 3 * 24 * 60 * 60 * 1000;
+  const createdBase = now - 5 * 24 * 60 * 60 * 1000;
 
-  const standupHtml =
-    '<p><strong>今日晨会核对清单：</strong></p><ul><li>同步昨日核心进展与阻塞项</li><li>确认今日 <em>P0</em> 发布排期与验收人</li><li>会后更新看板状态</li></ul>';
-  const reviewHtml =
-    '<p>演示环境每日凌晨 <strong>03:00</strong> 自动重置数据，你可以自由体验创建、编辑、筛选与<strong>测试发送</strong>功能。</p><blockquote><p>提示：填写你自己的公网渠道地址即可真实收到测试推送。</p></blockquote><p>项目仓库：<a href="https://github.com/WishMelz/tickbell" target="_blank" rel="noopener noreferrer">https://github.com/WishMelz/tickbell</a></p>';
+  const gptHtml =
+    '<p><strong>每月 12 号自动续费</strong>，提前检查 Apple ID 土区礼品卡余额是否充足。</p>';
+  const lebaraHtml =
+    '<p>示例号码：<strong>+44 7700 900123</strong></p><p>每 90 天发送一条短信或产生一次余额变动以保号。</p>';
+  const a1Html =
+    '<p>首次激活后有效期：<strong>180 天</strong>；到期后有 270 天宽限期（期间仍可接收短信）。</p><p>宽限期内在线充值最低 <strong>€2</strong>，可恢复账户有效期 92 天。</p><p>在线充值：<a href="https://www.a1.hr/kupi-bon" target="_blank" rel="noopener noreferrer">https://www.a1.hr/kupi-bon</a></p>';
+  const dialogHtml =
+    '<p>示例号码：<strong>+94 77 000 0123</strong></p><ul><li>Rs. 50 Dial Charger：15 天</li><li>Rs. 100 Dial Charger：30 天（1 个月）</li><li>Rs. 400 Dial Charger：6 个月</li><li>Rs. 1,000 Dial Charger：1 年</li></ul><p>充值链接：<a href="https://dialog.lk/reload-and-pay" target="_blank" rel="noopener noreferrer">https://dialog.lk/reload-and-pay</a></p>';
+  const rnHtml =
+    '<p><strong>2.5 GB KVM VPS</strong>（Black Friday 特惠款）</p><p>续费账号：demo@example.com · 核查账单与自动续费状态</p>';
 
   const channels = [
     {
-      id: CH_BARK,
-      name: '示例 Bark（iOS 推送）',
+      id: CH_BARK_OFFICIAL,
+      name: 'Bark-官方',
       type: 'bark',
       enabled: 1,
       config: JSON.stringify({
         serverUrl: 'https://api.day.app',
-        deviceKey: 'demo-device-key-replace-me',
+        deviceKey: 'demo-bark-official-key',
         group: 'TickBell',
         level: 'active',
         isArchive: true,
       }),
     },
     {
+      id: CH_BARK_BACKUP,
+      name: 'Bark-备用',
+      type: 'bark',
+      enabled: 1,
+      config: JSON.stringify({
+        serverUrl: 'https://api.day.app',
+        deviceKey: 'demo-bark-backup-key',
+        group: '保号与续费',
+        level: 'timeSensitive',
+        isArchive: true,
+      }),
+    },
+    {
       id: CH_TELEGRAM,
-      name: '示例 Telegram Bot',
+      name: 'Telegram 通知机器人',
       type: 'telegram',
       enabled: 1,
       config: JSON.stringify({
@@ -128,7 +155,7 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
     },
     {
       id: CH_WECOM,
-      name: '示例企业微信机器人',
+      name: '企业微信机器人',
       type: 'wecom',
       enabled: 1,
       config: JSON.stringify({
@@ -139,7 +166,7 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
     },
     {
       id: CH_FEISHU,
-      name: '示例飞书群机器人',
+      name: '飞书群机器人',
       type: 'feishu',
       enabled: 1,
       config: JSON.stringify({
@@ -148,145 +175,261 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
         mentionAll: false,
       }),
     },
-    {
-      id: CH_WEBHOOK,
-      name: '示例通用 Webhook',
-      type: 'webhook',
-      enabled: 1,
-      config: JSON.stringify({
-        url: 'https://example.com/webhooks/tickbell-demo',
-        method: 'POST',
-      }),
-    },
   ];
 
-  const standupNext = dayAtLocal(now, 1, '09:30');
-  const waterNext = Math.ceil((now + 20 * 60_000) / (60_000)) * 60_000;
-  const billNext = dayAtLocal(now, 5, '10:00');
-  const reviewNext = dayAtLocal(now, 1, '15:00');
-  const probeNext = Math.ceil((now + 10 * 60_000) / (60_000)) * 60_000;
-  const runNext = dayAtLocal(now, 2, '08:00');
-  const certDone = dayAtLocal(now, -1, '11:00');
+  const gptNext = dayAtLocal(now, 3, '15:30');
+  const o2Next = dayAtLocal(now, 12, '15:00');
+  const gvNext = dayAtLocal(now, 26, '15:45');
+  const lebaraNext = dayAtLocal(now, 45, '15:00');
+  const voxiNext = dayAtLocal(now, 72, '15:40');
+  const a1Next = dayAtLocal(now, 96, '15:40');
+  const rnNext = dayAtLocal(now, 118, '07:00', 'UTC');
+  const bwgNext = dayAtLocal(now, 140, '15:30');
+  const dialogNext = dayAtLocal(now, 165, '15:55');
+  const dmitNext = dayAtLocal(now, 210, '15:30');
+  const aisNext = dayAtLocal(now, 240, '15:00');
+  const sailyNext = dayAtLocal(now, 260, '15:35');
+  const cslNext = dayAtLocal(now, 295, '15:05');
+  const domainDone = dayAtLocal(now, -2, '15:30');
 
   const reminders = [
     {
-      id: REM_STANDUP,
-      title: '每日晨会与待办梳理',
-      content: contentHtmlToText(standupHtml),
-      content_html: standupHtml,
-      category: '工作',
-      tags: JSON.stringify(['重要', '每日']),
+      id: REM_GPT,
+      title: 'GPT 订阅续费（Apple 土区）',
+      content: contentHtmlToText(gptHtml),
+      content_html: gptHtml,
+      category: '订阅',
+      tags: JSON.stringify(['AI', '续费']),
       timezone: null,
-      starts_at: standupNext,
-      is_repeating: 1,
-      repeat_every: 1,
-      repeat_unit: 'day',
-      enabled: 1,
-      completed: 0,
-      next_run_at: standupNext,
-      channels: [CH_BARK, CH_WECOM],
-    },
-    {
-      id: REM_WATER,
-      title: '久坐起身喝水与远眺',
-      content: '离开屏幕休息 2 分钟，喝一杯温水并活动肩颈。',
-      content_html: null,
-      category: '健康',
-      tags: JSON.stringify(['护眼', '日常']),
-      timezone: null,
-      starts_at: waterNext,
-      is_repeating: 1,
-      repeat_every: 2,
-      repeat_unit: 'hour',
-      enabled: 1,
-      completed: 0,
-      next_run_at: waterNext,
-      channels: [CH_BARK],
-    },
-    {
-      id: REM_BILL,
-      title: '信用卡账单与固定支出核对',
-      content: '核对本月信用卡账单、云服务续费与水电燃气扣款，避免逾期。',
-      content_html: null,
-      category: '生活',
-      tags: JSON.stringify(['财务', '重要']),
-      timezone: null,
-      starts_at: billNext,
+      starts_at: gptNext,
       is_repeating: 1,
       repeat_every: 1,
       repeat_unit: 'month',
       enabled: 1,
       completed: 0,
-      next_run_at: billNext,
-      channels: [CH_BARK, CH_TELEGRAM],
+      next_run_at: gptNext,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP],
     },
     {
-      id: REM_REVIEW,
-      title: 'TickBell 2.0 演示功能体验与反馈',
-      content: contentHtmlToText(reviewHtml),
-      content_html: reviewHtml,
-      category: '工作',
-      tags: JSON.stringify(['团队', '演示']),
+      id: REM_O2,
+      title: '德国 O2 eSIM 保号',
+      content: 'Wise 定时转账，核查是否已自动到账并顺延有效期。',
+      content_html: null,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
       timezone: null,
-      starts_at: reviewNext,
+      starts_at: o2Next,
+      is_repeating: 1,
+      repeat_every: 3,
+      repeat_unit: 'month',
+      enabled: 1,
+      completed: 0,
+      next_run_at: o2Next,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP],
+    },
+    {
+      id: REM_GV,
+      title: 'Google Voice 保号活跃',
+      content: '每 3 个月主动发一条短信或拨出一次语音，避免号码回收。',
+      content_html: null,
+      category: 'GV',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: gvNext,
+      is_repeating: 1,
+      repeat_every: 80,
+      repeat_unit: 'day',
+      enabled: 1,
+      completed: 0,
+      next_run_at: gvNext,
+      channels: [CH_BARK_OFFICIAL, CH_TELEGRAM],
+    },
+    {
+      id: REM_LEBARA,
+      title: '英国 Lebara eSIM 保号',
+      content: contentHtmlToText(lebaraHtml),
+      content_html: lebaraHtml,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: lebaraNext,
+      is_repeating: 1,
+      repeat_every: 85,
+      repeat_unit: 'day',
+      enabled: 1,
+      completed: 0,
+      next_run_at: lebaraNext,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP],
+    },
+    {
+      id: REM_VOXI,
+      title: '英国 VOXI 保号',
+      content: '每 180 天内主动发送一次短信保持账户活跃。',
+      content_html: null,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: voxiNext,
+      is_repeating: 1,
+      repeat_every: 170,
+      repeat_unit: 'day',
+      enabled: 1,
+      completed: 0,
+      next_run_at: voxiNext,
+      channels: [CH_BARK_OFFICIAL],
+    },
+    {
+      id: REM_A1,
+      title: '克罗地亚 A1 eSIM 充值保号',
+      content: contentHtmlToText(a1Html),
+      content_html: a1Html,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: a1Next,
+      is_repeating: 1,
+      repeat_every: 90,
+      repeat_unit: 'day',
+      enabled: 1,
+      completed: 0,
+      next_run_at: a1Next,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP, CH_TELEGRAM],
+    },
+    {
+      id: REM_RN,
+      title: 'RackNerd 服务器年付续费（UTC）',
+      content: contentHtmlToText(rnHtml),
+      content_html: rnHtml,
+      category: 'VPS',
+      tags: JSON.stringify(['VPS', '续费']),
+      timezone: 'UTC',
+      starts_at: rnNext,
+      is_repeating: 1,
+      repeat_every: 1,
+      repeat_unit: 'year',
+      enabled: 1,
+      completed: 0,
+      next_run_at: rnNext,
+      channels: [CH_BARK_OFFICIAL, CH_FEISHU],
+    },
+    {
+      id: REM_BWG,
+      title: '搬瓦工服务器续费',
+      content: '核查年度账单与续费优惠码（示例已暂停状态）。',
+      content_html: null,
+      category: 'VPS',
+      tags: JSON.stringify(['搬瓦工', 'VPS', '续费']),
+      timezone: null,
+      starts_at: bwgNext,
+      is_repeating: 1,
+      repeat_every: 1,
+      repeat_unit: 'year',
+      enabled: 0,
+      completed: 0,
+      next_run_at: bwgNext,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP],
+    },
+    {
+      id: REM_DIALOG,
+      title: '斯里兰卡 Dialog eSIM 充值',
+      content: contentHtmlToText(dialogHtml),
+      content_html: dialogHtml,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: dialogNext,
+      is_repeating: 1,
+      repeat_every: 4,
+      repeat_unit: 'month',
+      enabled: 1,
+      completed: 0,
+      next_run_at: dialogNext,
+      channels: [CH_BARK_OFFICIAL, CH_BARK_BACKUP],
+    },
+    {
+      id: REM_DMIT,
+      title: 'DMIT Pro 节点续费',
+      content: '检查主用节点年度续费账单与流量重置时间。',
+      content_html: null,
+      category: 'VPS',
+      tags: JSON.stringify(['DMIT', 'VPS', '续费']),
+      timezone: null,
+      starts_at: dmitNext,
+      is_repeating: 1,
+      repeat_every: 1,
+      repeat_unit: 'year',
+      enabled: 1,
+      completed: 0,
+      next_run_at: dmitNext,
+      channels: [CH_BARK_OFFICIAL, CH_TELEGRAM, CH_FEISHU],
+    },
+    {
+      id: REM_AIS,
+      title: '泰国 AIS eSIM 续期',
+      content: 'myAIS 续费 365 天 49 泰铢保号套餐。',
+      content_html: null,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: aisNext,
+      is_repeating: 1,
+      repeat_every: 350,
+      repeat_unit: 'day',
+      enabled: 1,
+      completed: 0,
+      next_run_at: aisNext,
+      channels: [CH_BARK_OFFICIAL],
+    },
+    {
+      id: REM_SAILY,
+      title: '美国 Saily 年费流量包到期',
+      content: '打开 App 核对剩余流量与到期时间（单次提醒示例）。',
+      content_html: null,
+      category: 'eSIM',
+      tags: JSON.stringify(['电话卡', '续费']),
+      timezone: null,
+      starts_at: sailyNext,
       is_repeating: 0,
       repeat_every: null,
       repeat_unit: null,
       enabled: 1,
       completed: 0,
-      next_run_at: reviewNext,
-      channels: [CH_FEISHU, CH_WEBHOOK],
+      next_run_at: sailyNext,
+      channels: [CH_BARK_OFFICIAL],
     },
     {
-      id: REM_PROBE,
-      title: '服务探针与证书健康巡检（UTC）',
-      content: '演示独立时区提醒：按 UTC 时间每 30 分钟触发一次健康检查通知。',
+      id: REM_CSL,
+      title: '香港 CSL 电话卡延期',
+      content: 'App 内充值 HK$20 顺延有效期 365 天。',
       content_html: null,
-      category: '运维',
-      tags: JSON.stringify(['监控', '自动化']),
-      timezone: 'UTC',
-      starts_at: probeNext,
+      category: 'Sim卡',
+      tags: JSON.stringify(['电话卡', '保号']),
+      timezone: null,
+      starts_at: cslNext,
       is_repeating: 1,
-      repeat_every: 30,
-      repeat_unit: 'minute',
+      repeat_every: 11,
+      repeat_unit: 'month',
       enabled: 1,
       completed: 0,
-      next_run_at: probeNext,
-      channels: [CH_FEISHU, CH_WEBHOOK],
+      next_run_at: cslNext,
+      channels: [CH_BARK_OFFICIAL, CH_WECOM],
     },
     {
-      id: REM_RUN,
-      title: '周末户外 5 公里跑步打卡',
-      content: '热身 10 分钟，注意配速与补水（示例已暂停状态）。',
-      content_html: null,
-      category: '生活',
-      tags: JSON.stringify(['健身']),
-      timezone: null,
-      starts_at: runNext,
-      is_repeating: 1,
-      repeat_every: 7,
-      repeat_unit: 'day',
-      enabled: 0,
-      completed: 0,
-      next_run_at: runNext,
-      channels: [CH_BARK],
-    },
-    {
-      id: REM_CERT,
+      id: REM_DOMAIN,
       title: '主站域名与 SSL 证书续期确认',
-      content: '已确认 HTTPS 自动续期生效（示例已完成单次提醒）。',
+      content: '已核查域名自动续费与 HTTPS 证书有效（已完成示例）。',
       content_html: null,
-      category: '运维',
-      tags: JSON.stringify(['安全']),
+      category: 'VPS',
+      tags: JSON.stringify(['安全', '续费']),
       timezone: null,
-      starts_at: certDone,
+      starts_at: domainDone,
       is_repeating: 0,
       repeat_every: null,
       repeat_unit: null,
       enabled: 0,
       completed: 1,
-      next_run_at: certDone,
-      channels: [CH_TELEGRAM, CH_WECOM],
+      next_run_at: domainDone,
+      channels: [CH_WECOM, CH_FEISHU],
     },
   ];
 
@@ -294,53 +437,53 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
     {
       id: '33333333-3333-4333-8333-333333333301',
       event_id: '44444444-4444-4444-8444-444444444401',
-      reminder_id: REM_STANDUP,
+      reminder_id: REM_GPT,
       scheduled_at: now - 3 * 60 * 60 * 1000,
-      channel_id: CH_BARK,
+      channel_id: CH_BARK_OFFICIAL,
       status: 'sent',
       attempts: 1,
       next_retry_at: null,
       http_status: 200,
       error: null,
       response_summary: '{"code":200,"message":"success"}',
-      sent_at: now - 3 * 60 * 60 * 1000 + 420,
+      sent_at: now - 3 * 60 * 60 * 1000 + 380,
       created_at: now - 3 * 60 * 60 * 1000,
     },
     {
       id: '33333333-3333-4333-8333-333333333302',
       event_id: '44444444-4444-4444-8444-444444444402',
-      reminder_id: REM_STANDUP,
+      reminder_id: REM_GPT,
       scheduled_at: now - 3 * 60 * 60 * 1000,
-      channel_id: CH_WECOM,
-      status: 'sent',
-      attempts: 1,
-      next_retry_at: null,
-      http_status: 200,
-      error: null,
-      response_summary: '{"errcode":0,"errmsg":"ok"}',
-      sent_at: now - 3 * 60 * 60 * 1000 + 610,
-      created_at: now - 3 * 60 * 60 * 1000,
-    },
-    {
-      id: '33333333-3333-4333-8333-333333333303',
-      event_id: '44444444-4444-4444-8444-444444444403',
-      reminder_id: REM_WATER,
-      scheduled_at: now - 2 * 60 * 60 * 1000,
-      channel_id: CH_BARK,
+      channel_id: CH_BARK_BACKUP,
       status: 'sent',
       attempts: 1,
       next_retry_at: null,
       http_status: 200,
       error: null,
       response_summary: '{"code":200,"message":"success"}',
-      sent_at: now - 2 * 60 * 60 * 1000 + 310,
-      created_at: now - 2 * 60 * 60 * 1000,
+      sent_at: now - 3 * 60 * 60 * 1000 + 460,
+      created_at: now - 3 * 60 * 60 * 1000,
+    },
+    {
+      id: '33333333-3333-4333-8333-333333333303',
+      event_id: '44444444-4444-4444-8444-444444444403',
+      reminder_id: REM_O2,
+      scheduled_at: now - 6 * 60 * 60 * 1000,
+      channel_id: CH_BARK_OFFICIAL,
+      status: 'sent',
+      attempts: 1,
+      next_retry_at: null,
+      http_status: 200,
+      error: null,
+      response_summary: '{"code":200,"message":"success"}',
+      sent_at: now - 6 * 60 * 60 * 1000 + 290,
+      created_at: now - 6 * 60 * 60 * 1000,
     },
     {
       id: '33333333-3333-4333-8333-333333333304',
       event_id: '44444444-4444-4444-8444-444444444404',
-      reminder_id: REM_PROBE,
-      scheduled_at: now - 90 * 60 * 1000,
+      reminder_id: REM_DMIT,
+      scheduled_at: now - 12 * 60 * 60 * 1000,
       channel_id: CH_FEISHU,
       status: 'sent',
       attempts: 1,
@@ -348,45 +491,60 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
       http_status: 200,
       error: null,
       response_summary: '{"code":0,"msg":"success"}',
-      sent_at: now - 90 * 60 * 1000 + 530,
-      created_at: now - 90 * 60 * 1000,
+      sent_at: now - 12 * 60 * 60 * 1000 + 510,
+      created_at: now - 12 * 60 * 60 * 1000,
     },
     {
       id: '33333333-3333-4333-8333-333333333305',
       event_id: '44444444-4444-4444-8444-444444444405',
-      reminder_id: REM_PROBE,
-      scheduled_at: now - 60 * 60 * 1000,
-      channel_id: CH_WEBHOOK,
-      status: 'retrying',
+      reminder_id: REM_CSL,
+      scheduled_at: now - 18 * 60 * 60 * 1000,
+      channel_id: CH_WECOM,
+      status: 'sent',
       attempts: 1,
-      next_retry_at: now + 5 * 60 * 1000,
-      http_status: 503,
-      error: '目标 Webhook 暂时不可用（HTTP 503），演示自动退避重试状态',
-      response_summary: 'Service Unavailable',
-      sent_at: null,
-      created_at: now - 60 * 60 * 1000,
+      next_retry_at: null,
+      http_status: 200,
+      error: null,
+      response_summary: '{"errcode":0,"errmsg":"ok"}',
+      sent_at: now - 18 * 60 * 60 * 1000 + 420,
+      created_at: now - 18 * 60 * 60 * 1000,
     },
     {
       id: '33333333-3333-4333-8333-333333333306',
       event_id: '44444444-4444-4444-8444-444444444406',
-      reminder_id: REM_CERT,
-      scheduled_at: certDone,
+      reminder_id: REM_A1,
+      scheduled_at: now - 24 * 60 * 60 * 1000,
       channel_id: CH_TELEGRAM,
-      status: 'failed',
+      status: 'retrying',
       attempts: 1,
-      next_retry_at: null,
-      http_status: 401,
-      error: '示例失败日志：Bot Token 无效（HTTP 401），已停止重试',
-      response_summary: '{"ok":false,"error_code":401,"description":"Unauthorized"}',
+      next_retry_at: now + 5 * 60 * 1000,
+      http_status: 429,
+      error: 'Telegram 接口触发频控（HTTP 429），演示自动退避重试状态',
+      response_summary: '{"ok":false,"error_code":429,"description":"Too Many Requests"}',
       sent_at: null,
-      created_at: certDone,
+      created_at: now - 24 * 60 * 60 * 1000,
     },
     {
       id: '33333333-3333-4333-8333-333333333307',
       event_id: '44444444-4444-4444-8444-444444444407',
-      reminder_id: REM_RUN,
-      scheduled_at: now - 24 * 60 * 60 * 1000,
-      channel_id: CH_BARK,
+      reminder_id: REM_DOMAIN,
+      scheduled_at: domainDone,
+      channel_id: CH_WECOM,
+      status: 'failed',
+      attempts: 1,
+      next_retry_at: null,
+      http_status: 401,
+      error: '示例失败日志：机器人 Webhook Key 无效（HTTP 401），已停止重试',
+      response_summary: '{"errcode":93000,"errmsg":"invalid webhook url"}',
+      sent_at: null,
+      created_at: domainDone,
+    },
+    {
+      id: '33333333-3333-4333-8333-333333333308',
+      event_id: '44444444-4444-4444-8444-444444444408',
+      reminder_id: REM_BWG,
+      scheduled_at: now - 36 * 60 * 60 * 1000,
+      channel_id: CH_BARK_OFFICIAL,
       status: 'skipped',
       attempts: 0,
       next_retry_at: null,
@@ -394,7 +552,7 @@ export async function resetDemoData(db: DbAdapter, now = Date.now()): Promise<vo
       error: '超出错过提醒宽限窗口（60 分钟），已跳过（演示跳过状态）',
       response_summary: null,
       sent_at: null,
-      created_at: now - 23 * 60 * 60 * 1000,
+      created_at: now - 35 * 60 * 60 * 1000,
     },
   ];
 
