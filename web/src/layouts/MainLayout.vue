@@ -30,8 +30,11 @@ const nav = [
 
 const title = computed(() => route.meta.title ?? 'TickBell');
 
-// 进入主框架后预加载全局时区（提醒编辑器、设置页都要用）
+const demoInfo = computed(() => (settings.demo?.enabled ? settings.demo : null));
+
+// 进入主框架后预加载全局时区与运行能力（含演示模式状态）
 settings.load().catch(() => undefined);
+settings.loadCapabilities().catch(() => undefined);
 
 async function logout(): Promise<void> {
   const ok = await confirmDialog({ title: '退出登录', message: '确定退出当前账号吗？', okLabel: '退出' });
@@ -126,6 +129,12 @@ async function logout(): Promise<void> {
     </q-footer>
 
     <q-page-container>
+      <div v-if="demoInfo" class="demo-banner" role="status">
+        <q-icon :name="icons.info" size="16px" class="demo-banner-icon" />
+        <span class="demo-banner-text">
+          <strong>演示环境</strong>：定时调度已关闭（支持渠道与提醒手动测试发送）· 限 {{ demoInfo.maxReminders }} 条提醒 / {{ demoInfo.maxChannels }} 个渠道 · 禁止改密与导入备份 · {{ demoInfo.resetScheduleLabel }}自动重置数据
+        </span>
+      </div>
       <router-view />
     </q-page-container>
   </q-layout>
@@ -241,5 +250,31 @@ async function logout(): Promise<void> {
 }
 .tabbar-item--active {
   color: var(--q-primary);
+}
+.demo-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px;
+  font-size: 12.5px;
+  line-height: 1.45;
+  background: rgba(245, 158, 11, 0.13);
+  color: #92400e;
+  border-bottom: 1px solid rgba(245, 158, 11, 0.28);
+}
+:global(.body--dark) .demo-banner {
+  background: rgba(245, 158, 11, 0.14);
+  color: #fde68a;
+  border-bottom-color: rgba(245, 158, 11, 0.3);
+}
+.demo-banner-icon {
+  flex-shrink: 0;
+  color: #d97706;
+}
+:global(.body--dark) .demo-banner-icon {
+  color: #fbbf24;
+}
+.demo-banner-text {
+  min-width: 0;
 }
 </style>

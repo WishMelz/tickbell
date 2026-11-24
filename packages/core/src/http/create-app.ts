@@ -1,6 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { setCookie } from 'hono/cookie';
-import { AppError, ValidationError } from '../common/errors';
+import { AppError, forbidden, ValidationError } from '../common/errors';
 import { normalizeClientIp } from '../common/ip';
 import { epochToIso } from '../common/time';
 import type { ChannelProvider } from '../notifications/channel-provider.interface';
@@ -35,6 +35,8 @@ export interface CreateCoreAppDeps {
   db: DbAdapter;
   http: HttpTransport;
   rateLimiter: RateLimiter;
+  /** Optional dedicated rate limiter for test-send endpoints (used in demo/preview mode). */
+  testRateLimiter?: RateLimiter;
   getRuntimeMeta: () => RuntimeStatusMeta;
   autoBackupStorage?: AutoBackupStorage;
   extraProviders?: readonly ChannelProvider[];
@@ -90,11 +92,24 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
   const remindersRepo = new RemindersRepository(deps.db);
   const deliveriesRepo = new DeliveriesRepository(deps.db);
 
+  const demo = deps.config.demo?.enabled ? deps.config.demo : undefined;
+  const assertNotDemo = (message: string) => {
+    if (demo) throw forbidden(message);
+  };
+
   const settings = new SettingsService(deps.db, settingsRepo, remindersRepo);
   const auth = new AuthService(deps.config, deps.db, settingsRepo);
-  const proxiesSupported = deps.getRuntimeMeta().capabilities.proxies;
+  const proxiesSupported = !demo && deps.getRuntimeMeta().capabilities.proxies;
   const proxies = new ProxiesService(proxiesSupported, policy, proxiesRepo, deps.http.request);
-  const channels = new ChannelsService(policy, channelsRepo, registry, proxies, settings, proxiesSupported);
+  const channels = new ChannelsService(
+    policy,
+    channelsRepo,
+    registry,
+    proxies,
+    settings,
+    proxiesSupported,
+    demo?.maxChannels,
+  );
   const reminders = new RemindersService(
     deps.db,
     remindersRepo,
@@ -103,6 +118,8 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
     registry,
     proxies,
     settings,
+    demo?.maxReminders,
+    demo?.maxTestChannels,
   );
   const deliveries = new DeliveriesService(deliveriesRepo, channels, remindersRepo, registry, proxies, settings);
   const scheduler = new CoreScheduler(
@@ -157,15 +174,19 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
     });
   };
 
-  const enforceRateLimit = async (c: Context, scope: string): Promise<Response | null> => {
+  const enforceRateLimit = async (
+    c: Context,
+    scope: string,
+    limiter: RateLimiter = deps.rateLimiter,
+  ): Promise<Response | null> => {
     const ip = deps.getClientIp ? normalizeClientIp(deps.getClientIp(c)) : resolveClientIp(c);
-    const result = await deps.rateLimiter.limit(`${scope}:${ip}`);
+    const result = await limiter.limit(`${scope}:${ip}`);
     if (result.unavailable) {
       return c.json({ error: '限流服务暂不可用，请稍后重试' }, 503);
     }
     if (!result.allowed) {
       c.header('Retry-After', String(result.retryAfterSeconds ?? 60));
-      return c.json({ error: '尝试次数过多，请 1 分钟后再试' }, 429);
+      return c.json({ error: scope === 'test' ? '测试发送过于频繁，请 1 分钟后再试' : '尝试次数过多，请 1 分钟后再试' }, 429);
     }
     return null;
   };
@@ -244,6 +265,7 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
         uptimeSeconds: meta.uptimeSeconds,
         nodeVersion: meta.runtimeLabel,
         capabilities: meta.capabilities,
+        demo: meta.demo ?? demo ?? null,
         scheduler: {
           enabled: meta.schedulerEnabled,
           paused: meta.schedulerPaused || scheduler.isPaused,
@@ -260,6 +282,7 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
         limits: {
           missedGraceMinutes: deps.config.missedGraceMinutes,
           deliveryRetentionDays: deps.config.deliveryRetentionDays,
+          ...(demo ? { maxReminders: demo.maxReminders, maxChannels: demo.maxChannels } : {}),
         },
         backup: meta.sqliteBackup,
       },
@@ -278,11 +301,13 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
         initialized,
         authenticated,
         configurationIssue,
+        demo: demo ?? null,
       },
     });
   });
 
   app.post('/api/auth/setup', async (c) => {
+    assertNotDemo('演示环境已预置账号，无需初始化');
     const limited = await enforceRateLimit(c, 'auth');
     if (limited) return limited;
     const body = (await readJsonBody(c)) as Record<string, unknown>;
@@ -316,6 +341,7 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
   });
 
   app.post('/api/auth/change-password', async (c) => {
+    assertNotDemo('演示环境禁止修改管理密码');
     const limited = await enforceRateLimit(c, 'auth');
     if (limited) return limited;
     const body = (await readJsonBody(c)) as Record<string, unknown>;
@@ -342,8 +368,18 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
   });
 
   // ---------- Proxies ----------
-  app.get('/api/proxies', async (c) => c.json({ data: await proxies.list() }));
-  app.post('/api/proxies', async (c) => c.json({ data: await proxies.create(await readJsonBody(c)) }, 201));
+  app.use('/api/proxies/*', async (_c, next) => {
+    assertNotDemo('演示环境禁止配置或测试网络代理');
+    return next();
+  });
+  app.get('/api/proxies', async (c) => {
+    assertNotDemo('演示环境禁止配置或测试网络代理');
+    return c.json({ data: await proxies.list() });
+  });
+  app.post('/api/proxies', async (c) => {
+    assertNotDemo('演示环境禁止配置或测试网络代理');
+    return c.json({ data: await proxies.create(await readJsonBody(c)) }, 201);
+  });
   app.post('/api/proxies/test', async (c) => c.json({ data: await proxies.testAdhoc(await readJsonBody(c)) }));
   app.put('/api/proxies/:id', async (c) => c.json({ data: await proxies.update(c.req.param('id'), await readJsonBody(c)) }));
   app.delete('/api/proxies/:id', async (c) => c.json({ data: await proxies.delete(c.req.param('id')) }));
@@ -367,7 +403,13 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
     await channels.delete(c.req.param('id'));
     return c.json({ data: null });
   });
-  app.post('/api/channels/:id/test', async (c) => c.json({ data: await channels.test(c.req.param('id')) }));
+  app.post('/api/channels/:id/test', async (c) => {
+    if (demo) {
+      const limited = await enforceRateLimit(c, 'test', deps.testRateLimiter ?? deps.rateLimiter);
+      if (limited) return limited;
+    }
+    return c.json({ data: await channels.test(c.req.param('id')) });
+  });
 
   // ---------- Reminders ----------
   app.get('/api/reminders', async (c) => {
@@ -379,7 +421,13 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
   });
   app.post('/api/reminders', async (c) => c.json({ data: await reminders.create(await readJsonBody(c)) }, 201));
   app.post('/api/reminders/batch', async (c) => c.json({ data: await reminders.batch(await readJsonBody(c)) }));
-  app.post('/api/reminders/test', async (c) => c.json({ data: await reminders.test(await readJsonBody(c)) }));
+  app.post('/api/reminders/test', async (c) => {
+    if (demo) {
+      const limited = await enforceRateLimit(c, 'test', deps.testRateLimiter ?? deps.rateLimiter);
+      if (limited) return limited;
+    }
+    return c.json({ data: await reminders.test(await readJsonBody(c)) });
+  });
   app.get('/api/reminders/:id', async (c) => c.json({ data: await reminders.getById(c.req.param('id')) }));
   app.put('/api/reminders/:id', async (c) => c.json({ data: await reminders.update(c.req.param('id'), await readJsonBody(c)) }));
   app.delete('/api/reminders/:id', async (c) => {
@@ -391,9 +439,16 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
 
   // ---------- Deliveries ----------
   app.get('/api/deliveries', async (c) => c.json({ data: await deliveries.listPage(c.req.query()) }));
-  app.post('/api/deliveries/:id/retry', async (c) => c.json({ data: await deliveries.manualRetry(c.req.param('id')) }));
+  app.post('/api/deliveries/:id/retry', async (c) => {
+    assertNotDemo('演示环境不支持重发历史日志，请在渠道或提醒页使用「测试发送」');
+    return c.json({ data: await deliveries.manualRetry(c.req.param('id')) });
+  });
 
   // ---------- Backup ----------
+  app.use('/api/backup/*', async (_c, next) => {
+    assertNotDemo('演示环境禁止备份导出、导入恢复与本地自动备份操作');
+    return next();
+  });
   app.post('/api/backup/export', async (c) => {
     const limited = await enforceRateLimit(c, 'auth');
     if (limited) return limited;
@@ -435,7 +490,7 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
   // ---------- Error & Not Found ----------
   app.onError((error, c) => {
     if (error instanceof AppError) {
-      return c.json({ error: error.message }, error.statusCode as 400 | 401 | 404 | 409 | 413 | 429 | 501 | 503);
+      return c.json({ error: error.message }, error.statusCode as 400 | 401 | 403 | 404 | 409 | 413 | 429 | 501 | 503);
     }
     if (error instanceof SyntaxError) {
       return c.json({ error: '请求格式无效' }, 400);

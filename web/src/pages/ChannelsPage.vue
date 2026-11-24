@@ -41,8 +41,9 @@ const visibleChannels = computed(() =>
 );
 
 const supportedTypesLabel = computed(() => {
-  if (!channelTypes.value.length) return '管理多种通知渠道实例，支持独立配置与在线测试。';
-  return `已内置 ${channelTypes.value.map((t) => t.name).join('、')}，共 ${channelTypes.value.length} 种渠道。`;
+  const quota = settings.demo?.enabled ? `（演示上限 ${channels.value.length} / ${settings.demo.maxChannels} 个）` : '';
+  if (!channelTypes.value.length) return `管理多种通知渠道实例，支持独立配置与在线测试。${quota}`;
+  return `已内置 ${channelTypes.value.map((t) => t.name).join('、')}，共 ${channelTypes.value.length} 种渠道。${quota}`;
 });
 
 async function loadData(silent = false): Promise<void> {

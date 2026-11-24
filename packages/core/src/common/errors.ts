@@ -19,6 +19,10 @@ export function unauthorized(message = '请先登录'): AppError {
   return new AppError(401, message);
 }
 
+export function forbidden(message = '演示环境禁止此操作'): AppError {
+  return new AppError(403, message);
+}
+
 export function notFound(message = '资源不存在'): AppError {
   return new AppError(404, message);
 }

@@ -5,12 +5,15 @@ import type { QTableColumn } from 'quasar';
 import { api, type ChannelView, type DeliveryStatus, type DeliveryView } from '@/api';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
 import { icons } from '@/icons';
+import { useSettingsStore } from '@/stores/settings';
 import { chipClass, DELIVERY_STATUS, DELIVERY_STATUS_OPTIONS } from '@/utils/status';
 import { formatInstant } from '@/utils/time';
 
 const route = useRoute();
 const router = useRouter();
 const { isMobile } = useResponsive();
+const settings = useSettingsStore();
+const isDemo = computed(() => Boolean(settings.demo?.enabled));
 
 const loading = ref(true);
 const initialized = ref(false);
@@ -233,7 +236,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
         <template #body-cell-actions="props">
           <q-td :props="props" class="actions-cell">
             <q-btn
-              v-if="props.row.status === 'failed'"
+              v-if="props.row.status === 'failed' && !isDemo"
               flat
               dense
               no-caps
@@ -290,7 +293,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
             <span v-if="item.status === 'retrying' && item.nextRetryAt">下次重试：{{ formatInstant(item.nextRetryAt) }}</span>
           </div>
           <div v-if="item.error" class="d-err text-negative">{{ item.error }}</div>
-          <div v-if="item.status === 'failed'" class="q-pt-xs" @click.stop>
+          <div v-if="item.status === 'failed' && !isDemo" class="q-pt-xs" @click.stop>
             <q-btn
               outline
               dense
@@ -341,7 +344,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
             <pre class="code-box">{{ detailItem.responseSummary }}</pre>
           </div>
         </q-card-section>
-        <q-card-actions v-if="detailItem.status === 'failed'" align="right">
+        <q-card-actions v-if="detailItem.status === 'failed' && !isDemo" align="right">
           <q-btn
             unelevated
             no-caps

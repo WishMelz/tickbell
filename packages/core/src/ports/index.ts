@@ -98,6 +98,20 @@ export interface AutoBackupStorage {
 export type RuntimeKind = 'cloudflare' | 'node';
 export type CookieSecureMode = 'auto' | 'true' | 'false';
 
+export interface DemoPolicy {
+  enabled: boolean;
+  /** Displayed on the login page for one-click visitor login. */
+  passwordHint: string;
+  /** Max active reminders allowed in demo mode. */
+  maxReminders: number;
+  /** Max notification channels allowed in demo mode. */
+  maxChannels: number;
+  /** Max channels allowed in a single reminder test send. */
+  maxTestChannels: number;
+  /** Human-readable reset schedule label (e.g. `每日 03:00 (Asia/Shanghai)`). */
+  resetScheduleLabel: string;
+}
+
 export interface RuntimeCapabilities {
   proxies: boolean;
   diskAutoBackup: boolean;
@@ -113,6 +127,7 @@ export interface RuntimeStatusMeta {
   startedAt: string | null;
   uptimeSeconds: number | null;
   capabilities: RuntimeCapabilities;
+  demo?: DemoPolicy;
   schedulerEnabled: boolean;
   schedulerPaused: boolean;
   schedulerIntervalMs: number;
@@ -126,6 +141,8 @@ export interface RuntimeStatusMeta {
 export interface CoreConfig {
   version: string;
   runtime: RuntimeKind;
+  /** Optional demo/preview restrictions policy. */
+  demo?: DemoPolicy;
   /** Optional env fallback password (normal deployments initialize via Web UI). */
   adminPassword: string;
   /** Optional env fallback session secret (normal deployments initialize via Web UI). */

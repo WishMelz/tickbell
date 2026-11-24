@@ -86,6 +86,7 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
     const config = loadNodeConfig(
       {
         NODE_ENV: 'test',
+        DEMO_MODE: 'false',
         DB_PATH: dbPath,
         BACKUP_DIR: backupDir,
         SCHEDULER_ENABLED: 'false',
@@ -172,6 +173,7 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
     const config = loadNodeConfig(
       {
         NODE_ENV: 'test',
+        DEMO_MODE: 'false',
         DB_PATH: path.join(dir, 'trust.db'),
         ADMIN_PASSWORD: 'direct-node-password',
         TRUST_PROXY: 'false',
@@ -216,5 +218,158 @@ describe('TickBell 2.0 Node/Docker runtime & migration parity', () => {
       body: JSON.stringify({ password: 'wrong-password' }),
     });
     expect(blocked.status).toBe(429);
+  });
+
+  it('enforces preview demo mode: preset login, seeded data, disabled scheduler, high-risk 403s, quotas, test-only rate limit, and reset', async () => {
+    const dir = makeTempDir();
+    const config = loadNodeConfig(
+      {
+        NODE_ENV: 'test',
+        DB_PATH: path.join(dir, 'demo.db'),
+        DEMO_MAX_REMINDERS: '8',
+        DEMO_MAX_CHANNELS: '6',
+        DEMO_TEST_RATE_LIMIT: '2',
+        COOKIE_SECURE: 'false',
+      },
+      dir,
+    );
+    expect(config.demoMode).toBe(true);
+    expect(config.schedulerEnabled).toBe(false);
+    expect(config.allowPrivateUrls).toBe(false);
+    expect(config.demoPassword).toBe('tickbell123');
+    expect(config.demoResetCron).toBe('0 3 * * *');
+    expect(config.demoResetTimezone).toBe('Asia/Shanghai');
+
+    const runtime = createNodeRuntime({
+      config,
+      http: {
+        request: async () => ({ ok: true, status: 200, text: '{"ok":true}' }),
+        post: async () => ({ ok: true, status: 200, text: '{"code":200,"message":"success"}' }),
+      },
+    });
+    handles.push(runtime);
+    await runtime.startBackgroundTasks();
+
+    const app = runtime.bundle.app;
+    const req = (p: string, init?: RequestInit) => app.request(`http://localhost:3000${p}`, init);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const json = async (res: Response): Promise<any> => res.json();
+
+    // 1. Health OK with scheduler disabled & auth status exposes demo hint
+    const health = await json(await req('/api/health'));
+    expect(health.data.status).toBe('ok');
+    expect(health.data.scheduler.enabled).toBe(false);
+
+    const authStatus = await json(await req('/api/auth/status'));
+    expect(authStatus.data.initialized).toBe(true);
+    expect(authStatus.data.demo.enabled).toBe(true);
+    expect(authStatus.data.demo.passwordHint).toBe('tickbell123');
+
+    // 2. Login with preset demo password
+    const loginRes = await req('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: 'tickbell123' }),
+    });
+    expect(loginRes.status).toBe(200);
+    const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
+    const headers = { 'Content-Type': 'application/json', Cookie: cookie };
+
+    // 3. Seeded channels (5), reminders (7), and deliveries (7) are preloaded
+    const sysStatus = await json(await req('/api/system/status', { headers }));
+    expect(sysStatus.data.demo.enabled).toBe(true);
+    expect(sysStatus.data.counts.channels).toBe(5);
+    expect(sysStatus.data.counts.reminders).toBe(7);
+    expect(sysStatus.data.capabilities.proxies).toBe(false);
+    expect(sysStatus.data.capabilities.diskAutoBackup).toBe(false);
+
+    const deliveriesPage = await json(await req('/api/deliveries?page=1&pageSize=20', { headers }));
+    expect(deliveriesPage.data.total).toBe(7);
+
+    // 4. High-risk operations strictly return 403
+    expect((await req('/api/auth/setup', { method: 'POST', headers, body: '{}' })).status).toBe(403);
+    expect(
+      (
+        await req('/api/auth/change-password', {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ currentPassword: 'tickbell123', newPassword: 'newpassword' }),
+        })
+      ).status,
+    ).toBe(403);
+    expect((await req('/api/proxies', { headers })).status).toBe(403);
+    expect((await req('/api/backup/export', { method: 'POST', headers, body: '{}' })).status).toBe(403);
+    expect((await req('/api/backup/restore', { method: 'POST', headers, body: '{}' })).status).toBe(403);
+    expect((await req('/api/backup/auto', { headers })).status).toBe(403);
+    expect(
+      (await req('/api/deliveries/33333333-3333-4333-8333-333333333306/retry', { method: 'POST', headers })).status,
+    ).toBe(403);
+
+    // 5. Private URL SSRF blocked in demo mode
+    const privCh = await req('/api/channels', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: '内网探测',
+        type: 'bark',
+        enabled: true,
+        config: { serverUrl: 'http://127.0.0.1:8080', deviceKey: 'abc' },
+      }),
+    });
+    expect(privCh.status).toBe(400);
+
+    // 6. Channel quota enforced (5 seeded, max 6 -> 1st succeeds, 2nd fails)
+    const chOk = await req('/api/channels', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: '第 6 个渠道',
+        type: 'bark',
+        enabled: true,
+        config: { serverUrl: 'https://api.day.app', deviceKey: 'demo-key-6' },
+      }),
+    });
+    expect(chOk.status).toBe(201);
+    const createdChannelId = (await json(chOk)).data.id as string;
+
+    const chOver = await req('/api/channels', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        name: '超限渠道',
+        type: 'bark',
+        enabled: true,
+        config: { serverUrl: 'https://api.day.app', deviceKey: 'demo-key-7' },
+      }),
+    });
+    expect(chOver.status).toBe(400);
+
+    // 7. Reminder quota enforced (7 seeded, max 8 -> 1st succeeds, 2nd fails)
+    const remPayload = {
+      title: '第 8 条提醒',
+      content: '测试内容',
+      scheduledLocal: '2026-12-20T10:00',
+      timezone: null,
+      isRepeating: false,
+      repeatEvery: null,
+      repeatUnit: null,
+      channelIds: [createdChannelId],
+      enabled: true,
+    };
+    expect((await req('/api/reminders', { method: 'POST', headers, body: JSON.stringify(remPayload) })).status).toBe(201);
+    expect(
+      (await req('/api/reminders', { method: 'POST', headers, body: JSON.stringify({ ...remPayload, title: '超限' }) })).status,
+    ).toBe(400);
+
+    // 8. Manual test send works AND enforces test rate limit (limit=2 -> 3rd returns 429)
+    expect((await req(`/api/channels/${createdChannelId}/test`, { method: 'POST', headers })).status).toBe(200);
+    expect((await req('/api/reminders/test', { method: 'POST', headers, body: JSON.stringify(remPayload) })).status).toBe(200);
+    expect((await req(`/api/channels/${createdChannelId}/test`, { method: 'POST', headers })).status).toBe(429);
+
+    // 9. Daily reset restores exact seeded counts (5 channels, 7 reminders) and keeps login working
+    await runtime.resetDemoData();
+    const afterReset = await json(await req('/api/system/status', { headers }));
+    expect(afterReset.data.counts.channels).toBe(5);
+    expect(afterReset.data.counts.reminders).toBe(7);
   });
 });

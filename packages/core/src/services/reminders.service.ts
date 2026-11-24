@@ -70,6 +70,8 @@ export class RemindersService {
     private readonly registry: ChannelRegistry,
     private readonly proxies: ProxiesService,
     private readonly settings: SettingsService,
+    private readonly maxReminders?: number,
+    private readonly maxTestChannels?: number,
   ) {}
 
   private toView(row: ReminderRow, channelIds: string[], globalTimezone: string): ReminderView {
@@ -189,6 +191,9 @@ export class RemindersService {
   }
 
   async create(raw: unknown): Promise<ReminderView> {
+    if (this.maxReminders !== undefined && (await this.repo.countActive()) >= this.maxReminders) {
+      throw new ValidationError(`演示环境最多创建 ${this.maxReminders} 条提醒，请删除部分提醒后再试`);
+    }
     const globalTimezone = await this.settings.getGlobalTimezone();
     const { input, startsAt } = validateReminderInput(raw, globalTimezone);
     await this.ensureChannelsExist(input.channelIds);
@@ -393,8 +398,9 @@ export class RemindersService {
   async test(raw: unknown): Promise<ReminderTestResult[]> {
     const globalTimezone = await this.settings.getGlobalTimezone();
     const { input, startsAt, effectiveTimezone } = validateReminderInput(raw, globalTimezone);
-    if (input.channelIds.length > 100) {
-      throw new ValidationError('一次最多测试 100 个通知渠道');
+    const maxTest = this.maxTestChannels ?? 100;
+    if (input.channelIds.length > maxTest) {
+      throw new ValidationError(`一次最多测试 ${maxTest} 个通知渠道`);
     }
 
     const channels = await Promise.all(input.channelIds.map((id) => this.channelsService.getInternal(id)));

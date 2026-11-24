@@ -8,11 +8,13 @@ import { confirmDialog } from '@/composables/dialogs';
 import { tabbarHidden } from '@/composables/layoutState';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
 import { icons } from '@/icons';
+import { useSettingsStore } from '@/stores/settings';
 import { chipClass, reminderStatus } from '@/utils/status';
 import { formatLocal, formatLocalFriendly, formatRelative, repeatText } from '@/utils/time';
 
 const router = useRouter();
 const { isMobile, isTablet } = useResponsive();
+const settings = useSettingsStore();
 
 const loading = ref(true);
 const initialized = ref(false);
@@ -384,7 +386,13 @@ function tooltipContent(text: string): string {
     <div v-if="!isMobile" class="app-page-head">
       <div>
         <h1>提醒管理</h1>
-        <div class="sub">{{ initialized ? `共 ${totalReminders} 条提醒` : '加载中…' }}</div>
+        <div class="sub">
+          <template v-if="!initialized">加载中…</template>
+          <template v-else-if="settings.demo?.enabled">
+            共 {{ totalReminders }} / {{ settings.demo.maxReminders }} 条提醒（演示配额）
+          </template>
+          <template v-else>共 {{ totalReminders }} 条提醒</template>
+        </div>
       </div>
       <q-space />
       <q-btn flat round :icon="icons.refresh" aria-label="刷新" :loading="loading" @click="loadData()">

@@ -31,8 +31,25 @@ const formError = ref('');
 const lockedSeconds = ref(0);
 let lockTimer: ReturnType<typeof setInterval> | null = null;
 
-const needsSetup = computed(() => Boolean(status.value && !status.value.initialized));
+const demoInfo = computed(() => (status.value?.demo?.enabled ? status.value.demo : null));
+const needsSetup = computed(() => Boolean(status.value && !status.value.initialized && !demoInfo.value));
 const canSubmit = computed(() => !submitting.value && !statusLoading.value && !statusError.value && lockedSeconds.value === 0);
+
+async function copyDemoPassword(): Promise<void> {
+  if (!demoInfo.value?.passwordHint) return;
+  try {
+    await navigator.clipboard.writeText(demoInfo.value.passwordHint);
+    notifySuccess('已复制演示密码');
+  } catch {
+    // 忽略剪贴板权限限制
+  }
+}
+
+async function quickDemoLogin(): Promise<void> {
+  if (!demoInfo.value || !canSubmit.value) return;
+  password.value = demoInfo.value.passwordHint;
+  await submitLogin();
+}
 
 function redirectTarget(): string {
   const redirect = route.query.redirect;
@@ -174,9 +191,15 @@ onBeforeUnmount(() => {
     <div class="login-theme"><ThemeToggle /></div>
     <main class="login-card app-card" :class="{ 'login-card--setup': needsSetup }">
       <div class="login-mark"><q-icon :name="icons.notificationsActive" size="30px" /></div>
-      <h1>{{ needsSetup ? '首次启动初始化' : 'TickBell' }}</h1>
+      <h1>{{ needsSetup ? '首次启动初始化' : demoInfo ? 'TickBell 在线演示' : 'TickBell' }}</h1>
       <p class="text-muted login-sub">
-        {{ needsSetup ? '手动设置管理密码与系统密钥，持久化到数据库后无需再配置环境变量' : '请输入管理密码登录' }}
+        {{
+          needsSetup
+            ? '手动设置管理密码与系统密钥，持久化到数据库后无需再配置环境变量'
+            : demoInfo
+              ? '免部署体验多渠道定时提醒系统，支持通道与提醒手动测试发送'
+              : '请输入管理密码登录'
+        }}
       </p>
 
       <div v-if="statusLoading" class="row justify-center q-py-lg"><q-spinner size="32px" color="primary" /></div>
@@ -267,6 +290,32 @@ onBeforeUnmount(() => {
 
         <!-- 日常登录表单 -->
         <form v-else class="login-form" novalidate @submit.prevent="submitLogin">
+          <div v-if="demoInfo" class="demo-box">
+            <div class="demo-box-row">
+              <span class="demo-badge">演示账号</span>
+              <span class="demo-pwd">
+                密码：<code>{{ demoInfo.passwordHint }}</code>
+              </span>
+              <q-btn flat round dense size="sm" :icon="icons.copy" aria-label="复制演示密码" @click="copyDemoPassword">
+                <q-tooltip>复制密码</q-tooltip>
+              </q-btn>
+            </div>
+            <div class="demo-box-desc text-muted">
+              定时调度已关闭（支持渠道与提醒手动测试）· 限 {{ demoInfo.maxReminders }} 条提醒 / {{ demoInfo.maxChannels }} 个渠道 · {{ demoInfo.resetScheduleLabel }}自动重置
+            </div>
+            <q-btn
+              unelevated
+              no-caps
+              color="primary"
+              class="full-width touch-44 q-mt-sm"
+              :icon="icons.play"
+              label="一键演示登录"
+              :loading="submitting"
+              :disable="!canSubmit"
+              @click="quickDemoLogin"
+            />
+          </div>
+
           <input type="text" name="username" autocomplete="username" value="admin" hidden aria-hidden="true" />
           <q-input
             v-model="password"
@@ -376,6 +425,43 @@ onBeforeUnmount(() => {
   flex-direction: column;
   gap: 14px;
   text-align: left;
+}
+.demo-box {
+  padding: 12px 14px;
+  border-radius: var(--app-radius-sm);
+  background: var(--app-selected);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.demo-box-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+}
+.demo-badge {
+  font-size: 11.5px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: var(--q-primary);
+  color: #fff;
+}
+.demo-pwd {
+  flex: 1;
+  font-weight: 550;
+  code {
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--app-surface);
+    font-size: 13px;
+  }
+}
+.demo-box-desc {
+  font-size: 12px;
+  line-height: 1.5;
 }
 .form-err {
   font-size: 13px;

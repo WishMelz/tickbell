@@ -38,10 +38,15 @@ const themeModes: Array<{ label: string; value: ThemeMode; icon: string }> = [
   { label: '跟随系统', value: 'auto', icon: icons.themeAuto },
 ];
 
+const demoInfo = computed(() => {
+  const d = sysStatus.value?.demo ?? settings.demo;
+  return d?.enabled ? d : null;
+});
+const isDemo = computed(() => Boolean(demoInfo.value));
 const isCloudflare = computed(() => (sysStatus.value?.runtime ?? settings.runtime) === 'cloudflare');
-const supportsProxies = computed(() => sysStatus.value?.capabilities?.proxies ?? settings.capabilities.proxies);
+const supportsProxies = computed(() => !isDemo.value && (sysStatus.value?.capabilities?.proxies ?? settings.capabilities.proxies));
 const supportsDiskAutoBackup = computed(
-  () => sysStatus.value?.capabilities?.diskAutoBackup ?? settings.capabilities.diskAutoBackup,
+  () => !isDemo.value && (sysStatus.value?.capabilities?.diskAutoBackup ?? settings.capabilities.diskAutoBackup),
 );
 
 async function loadAll(reloadChildren = false): Promise<void> {
@@ -197,17 +202,27 @@ async function handleLogout(): Promise<void> {
             <h3 class="section-title">服务运行状态</h3>
             <div class="text-muted text-caption">
               {{
-                isCloudflare
-                  ? 'Cloudflare Workers + D1 边缘运行指标与 Cron 调度心跳'
-                  : '单机 Hono + SQLite 进程健康指标与调度器心跳'
+                isDemo
+                  ? '演示环境：定时扫描已关闭，仅支持手动测试发送与每日定时重置'
+                  : isCloudflare
+                    ? 'Cloudflare Workers + D1 边缘运行指标与 Cron 调度心跳'
+                    : '单机 Hono + SQLite 进程健康指标与调度器心跳'
               }}
             </div>
           </div>
           <span
             v-if="sysStatus"
-            :class="chipClass(sysStatus.scheduler.enabled && !sysStatus.scheduler.paused ? 'positive' : 'warning')"
+            :class="chipClass(isDemo ? 'info' : sysStatus.scheduler.enabled && !sysStatus.scheduler.paused ? 'positive' : 'warning')"
           >
-            {{ sysStatus.scheduler.paused ? '调度已暂停' : sysStatus.scheduler.enabled ? '调度运行中' : '调度已关闭' }}
+            {{
+              isDemo
+                ? '演示模式（仅手动测试）'
+                : sysStatus.scheduler.paused
+                  ? '调度已暂停'
+                  : sysStatus.scheduler.enabled
+                    ? '调度运行中'
+                    : '调度已关闭'
+            }}
           </span>
         </div>
 
@@ -226,13 +241,25 @@ async function handleLogout(): Promise<void> {
           </div>
           <div class="stat">
             <span class="text-muted">提醒数量</span>
-            <strong>{{ sysStatus.counts.reminders }} 条（运行中 {{ sysStatus.counts.activeReminders }}）</strong>
+            <strong>
+              {{ sysStatus.counts.reminders }}
+              <template v-if="demoInfo"> / {{ demoInfo.maxReminders }} 条</template>
+              <template v-else> 条（运行中 {{ sysStatus.counts.activeReminders }}）</template>
+            </strong>
           </div>
           <div class="stat">
-            <span class="text-muted">渠道 / 待重试</span>
-            <strong>{{ sysStatus.counts.channels }} 个渠道 · {{ sysStatus.counts.retryingDeliveries }} 条重试</strong>
+            <span class="text-muted">通知渠道</span>
+            <strong>
+              {{ sysStatus.counts.channels }}
+              <template v-if="demoInfo"> / {{ demoInfo.maxChannels }} 个渠道</template>
+              <template v-else> 个渠道 · {{ sysStatus.counts.retryingDeliveries }} 条重试</template>
+            </strong>
           </div>
-          <div class="stat">
+          <div v-if="demoInfo" class="stat">
+            <span class="text-muted">定时重置演示数据</span>
+            <strong>{{ demoInfo.resetScheduleLabel }}</strong>
+          </div>
+          <div v-else class="stat">
             <span class="text-muted">最近一次扫描</span>
             <strong>
               {{ sysStatus.scheduler.lastTickAt ? formatInstant(sysStatus.scheduler.lastTickAt) : '尚未执行' }}
@@ -241,7 +268,11 @@ async function handleLogout(): Promise<void> {
               </span>
             </strong>
           </div>
-          <div v-if="!isCloudflare" class="stat">
+          <div v-if="demoInfo" class="stat">
+            <span class="text-muted">演示访问密码</span>
+            <strong>{{ demoInfo.passwordHint }}</strong>
+          </div>
+          <div v-else-if="!isCloudflare" class="stat">
             <span class="text-muted">最近 SQLite 自动备份</span>
             <strong>{{ sysStatus.backup.lastBackupAt ? formatInstant(sysStatus.backup.lastBackupAt) : '暂无记录' }}</strong>
           </div>
@@ -252,8 +283,25 @@ async function handleLogout(): Promise<void> {
         </div>
       </div>
 
-      <!-- 修改管理密码 -->
-      <div class="app-card q-pa-md">
+      <!-- 演示环境限制说明（仅演示模式展示） -->
+      <div v-if="sysStatus && demoInfo" class="app-card q-pa-md">
+        <div class="card-head">
+          <q-icon :name="icons.lock" size="20px" color="warning" />
+          <div>
+            <h3 class="section-title">演示环境安全与配额说明</h3>
+            <div class="text-muted text-caption">为保障在线演示站稳定与服务器安全，已启用以下限制：</div>
+          </div>
+        </div>
+        <ul class="demo-rules-list q-mt-md q-mb-none">
+          <li><strong>定时调度已关闭</strong>：不会自动在后台触发提醒，你可以在「通知渠道」或「提醒管理」中点击「测试」验证公网推送效果（禁止访问内网地址）。</li>
+          <li><strong>资源与频控上限</strong>：最多创建 <strong>{{ demoInfo.maxReminders }}</strong> 条提醒、<strong>{{ demoInfo.maxChannels }}</strong> 个通知渠道；单次提醒测试最多同时选择 <strong>{{ demoInfo.maxTestChannels }}</strong> 个渠道。</li>
+          <li><strong>高危操作已禁用</strong>：演示模式已关闭修改管理密码、网络代理配置、全量备份导出/导入恢复以及历史投递重试功能。</li>
+          <li><strong>定时清理重置</strong>：系统将于 <strong>{{ demoInfo.resetScheduleLabel }}</strong> 自动清空当前数据并还原为默认演示数据。</li>
+        </ul>
+      </div>
+
+      <!-- 修改管理密码（非演示模式） -->
+      <div v-if="!isDemo" class="app-card q-pa-md">
         <div class="card-head">
           <q-icon :name="icons.lock" size="20px" color="primary" />
           <div>
@@ -269,11 +317,11 @@ async function handleLogout(): Promise<void> {
         </div>
       </div>
 
-      <!-- 网络代理（仅自部署 Node/Docker 模式支持，等运行环境能力探测完成后再挂载，避免 CF 模式下误发 501 请求） -->
+      <!-- 网络代理（仅自部署 Node/Docker 非演示模式支持） -->
       <ProxySection v-if="sysStatus && supportsProxies" ref="proxySectionRef" />
 
-      <!-- 备份与恢复（等能力探测完成后再挂载，避免 CF 模式下误请求本地自动备份接口） -->
-      <BackupSection v-if="sysStatus" ref="backupSectionRef" :disk-auto-backup="supportsDiskAutoBackup" />
+      <!-- 备份与恢复（非演示模式） -->
+      <BackupSection v-if="sysStatus && !isDemo" ref="backupSectionRef" :disk-auto-backup="supportsDiskAutoBackup" />
 
       <!-- 移动端退出登录按钮 -->
       <div v-if="isMobile" class="q-pt-xs">
@@ -342,5 +390,14 @@ async function handleLogout(): Promise<void> {
   flex-direction: column;
   gap: 4px;
   font-size: 13px;
+}
+.demo-rules-list {
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--app-text-2);
 }
 </style>

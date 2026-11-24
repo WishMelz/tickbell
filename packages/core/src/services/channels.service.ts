@@ -51,6 +51,7 @@ export class ChannelsService {
     private readonly proxies: ProxiesService,
     private readonly settings: SettingsService,
     private readonly proxiesSupported: boolean,
+    private readonly maxChannels?: number,
   ) {}
 
   listTypes(): ChannelTypeDescriptor[] {
@@ -161,6 +162,9 @@ export class ChannelsService {
   }
 
   async create(raw: unknown): Promise<ChannelView> {
+    if (this.maxChannels !== undefined && (await this.repo.countAll()) >= this.maxChannels) {
+      throw new ValidationError(`演示环境最多创建 ${this.maxChannels} 个通知渠道，请删除部分渠道后再试`);
+    }
     if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
       throw new ValidationError('请求体必须是 JSON 对象');
     }

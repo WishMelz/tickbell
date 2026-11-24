@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { api, type RuntimeCapabilities, type RuntimeKind, type SystemStatus } from '@/api';
+import { api, type DemoStatusMeta, type RuntimeCapabilities, type RuntimeKind, type SystemStatus } from '@/api';
 
 const DEFAULT_CAPABILITIES: RuntimeCapabilities = {
   proxies: true,
@@ -16,6 +16,7 @@ export const useSettingsStore = defineStore('settings', () => {
   const runtime = ref<RuntimeKind>('node');
   const capabilities = ref<RuntimeCapabilities>({ ...DEFAULT_CAPABILITIES });
   const capabilitiesLoaded = ref(false);
+  const demo = ref<DemoStatusMeta | null>(null);
   let pending: Promise<void> | null = null;
   let pendingCap: Promise<void> | null = null;
 
@@ -41,6 +42,7 @@ export const useSettingsStore = defineStore('settings', () => {
       capabilities.value = { ...status.capabilities };
       capabilitiesLoaded.value = true;
     }
+    demo.value = status.demo ?? null;
   }
 
   async function loadCapabilities(force = false): Promise<void> {
@@ -70,6 +72,7 @@ export const useSettingsStore = defineStore('settings', () => {
   function reset(): void {
     loaded.value = false;
     capabilitiesLoaded.value = false;
+    demo.value = null;
   }
 
   return {
@@ -78,6 +81,7 @@ export const useSettingsStore = defineStore('settings', () => {
     runtime,
     capabilities,
     capabilitiesLoaded,
+    demo,
     load,
     loadCapabilities,
     setSystemStatus,

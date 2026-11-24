@@ -14,11 +14,21 @@ export interface RuntimeCapabilities {
   allowPrivateUrls: boolean;
 }
 
+export interface DemoStatusMeta {
+  enabled: boolean;
+  passwordHint: string;
+  maxReminders: number;
+  maxChannels: number;
+  maxTestChannels: number;
+  resetScheduleLabel: string;
+}
+
 export interface AuthStatus {
   runtime?: RuntimeKind;
   initialized: boolean;
   authenticated: boolean;
   configurationIssue: ConfigurationIssue;
+  demo?: DemoStatusMeta | null;
 }
 
 // ---------- Settings ----------
@@ -295,6 +305,7 @@ export interface SystemStatus {
   uptimeSeconds: number | null;
   nodeVersion: string;
   capabilities?: RuntimeCapabilities;
+  demo?: DemoStatusMeta | null;
   scheduler: {
     enabled: boolean;
     paused: boolean;
@@ -303,7 +314,12 @@ export interface SystemStatus {
     lastTickDurationMs: number | null;
   };
   counts: { reminders: number; activeReminders: number; channels: number; retryingDeliveries: number };
-  limits: { missedGraceMinutes: number; deliveryRetentionDays: number };
+  limits: {
+    missedGraceMinutes: number;
+    deliveryRetentionDays: number;
+    maxReminders?: number;
+    maxChannels?: number;
+  };
   backup: { lastBackupAt: string | null; lastBackupFile: string | null; keepDays: number };
 }
 
