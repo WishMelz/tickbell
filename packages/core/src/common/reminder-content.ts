@@ -1,7 +1,8 @@
 import { Parser } from 'htmlparser2';
-import xss from 'xss';
+import xssDefault from 'xss';
 
-const { FilterXSS, escapeAttrValue } = xss;
+// `xss` is a CommonJS package; default import avoids Node ESM named-export errors under `tsx` while keeping full types.
+const { FilterXSS, escapeAttrValue } = xssDefault as unknown as typeof import('xss');
 
 export const CONTENT_TEXT_LIMIT = 4000;
 export const CONTENT_HTML_LIMIT = 64000;
