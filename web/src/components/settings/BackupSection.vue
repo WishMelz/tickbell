@@ -331,10 +331,11 @@ async function runRestore(): Promise<void> {
             outlined
             dense
             label="备份时间"
+            class="auto-field auto-field--time"
             :disable="autoLoading || autoSaving"
           />
 
-          <div class="interval-group">
+          <div class="interval-group auto-field auto-field--interval">
             <q-input
               v-model.number="autoForm.intervalEvery"
               type="number"
@@ -343,7 +344,7 @@ async function runRestore(): Promise<void> {
               :min="1"
               :max="autoForm.intervalUnit === 'hour' ? 720 : 365"
               label="循环间隔"
-              class="col"
+              class="interval-num"
               :disable="autoLoading || autoSaving"
             />
             <q-select
@@ -368,6 +369,7 @@ async function runRestore(): Promise<void> {
             :min="1"
             :max="100"
             label="最多保留（份）"
+            class="auto-field auto-field--max"
             :disable="autoLoading || autoSaving"
           />
         </div>
@@ -405,57 +407,59 @@ async function runRestore(): Promise<void> {
         </div>
 
         <!-- 本地自动备份文件列表 -->
-        <div v-if="autoView?.files.length" class="file-list">
+        <div v-if="autoView?.files.length" class="file-list-wrap">
           <div class="file-list-head text-caption text-muted">
             已保存的自动备份（{{ autoView.files.length }} / {{ autoView.config.maxFiles }} 份）
           </div>
-          <div v-for="file in autoView.files" :key="file.name" class="file-row">
-            <div class="file-info">
-              <div class="file-name">{{ file.name }}</div>
-              <div class="file-sub text-faint">
-                {{ formatFileSize(file.sizeBytes) }} · {{ formatInstant(file.createdAt) }}
+          <div class="file-list">
+            <div v-for="file in autoView.files" :key="file.name" class="file-row">
+              <div class="file-info">
+                <div class="file-name">{{ file.name }}</div>
+                <div class="file-sub text-faint">
+                  {{ formatFileSize(file.sizeBytes) }} · {{ formatInstant(file.createdAt) }}
+                </div>
               </div>
-            </div>
-            <div class="file-btns">
-              <q-btn
-                flat
-                round
-                dense
-                size="sm"
-                color="primary"
-                :icon="icons.download"
-                :loading="busyFileName === file.name"
-                aria-label="下载"
-                @click="downloadAutoFile(file)"
-              >
-                <q-tooltip>下载文件</q-tooltip>
-              </q-btn>
-              <q-btn
-                flat
-                round
-                dense
-                size="sm"
-                color="warning"
-                :icon="icons.upload"
-                :disable="busyFileName === file.name || previewing"
-                aria-label="载入恢复预览"
-                @click="previewAutoFile(file)"
-              >
-                <q-tooltip>载入到右侧恢复预览</q-tooltip>
-              </q-btn>
-              <q-btn
-                flat
-                round
-                dense
-                size="sm"
-                color="negative"
-                :icon="icons.delete"
-                :disable="busyFileName === file.name"
-                aria-label="删除"
-                @click="deleteAutoFile(file)"
-              >
-                <q-tooltip>删除</q-tooltip>
-              </q-btn>
+              <div class="file-btns">
+                <q-btn
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  color="primary"
+                  :icon="icons.download"
+                  :loading="busyFileName === file.name"
+                  aria-label="下载"
+                  @click="downloadAutoFile(file)"
+                >
+                  <q-tooltip>下载文件</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  color="warning"
+                  :icon="icons.upload"
+                  :disable="busyFileName === file.name || previewing"
+                  aria-label="载入恢复预览"
+                  @click="previewAutoFile(file)"
+                >
+                  <q-tooltip>载入到右侧恢复预览</q-tooltip>
+                </q-btn>
+                <q-btn
+                  flat
+                  round
+                  dense
+                  size="sm"
+                  color="negative"
+                  :icon="icons.delete"
+                  :disable="busyFileName === file.name"
+                  aria-label="删除"
+                  @click="deleteAutoFile(file)"
+                >
+                  <q-tooltip>删除</q-tooltip>
+                </q-btn>
+              </div>
             </div>
           </div>
         </div>
@@ -613,6 +617,7 @@ async function runRestore(): Promise<void> {
     padding: 1px 4px;
     border-radius: 4px;
     background: var(--app-surface-2);
+    overflow-wrap: anywhere;
   }
 }
 .sub-block {
@@ -621,19 +626,32 @@ async function runRestore(): Promise<void> {
   gap: 12px;
 }
 .auto-grid {
-  display: grid;
-  grid-template-columns: 128px 1fr 126px;
+  display: flex;
+  flex-wrap: wrap;
   gap: 10px;
-  @media (max-width: 600px) {
-    grid-template-columns: 1fr;
-  }
+}
+.auto-field--time {
+  flex: 1 1 116px;
+  min-width: 112px;
+}
+.auto-field--interval {
+  flex: 1.5 1 176px;
+  min-width: 170px;
+}
+.auto-field--max {
+  flex: 1 1 124px;
+  min-width: 120px;
 }
 .interval-group {
   display: flex;
-  gap: 8px;
+  gap: 6px;
+}
+.interval-num {
+  flex: 1 1 92px;
+  min-width: 88px;
 }
 .unit-select {
-  width: 82px;
+  width: 74px;
   flex-shrink: 0;
 }
 .auto-meta {
@@ -656,21 +674,28 @@ async function runRestore(): Promise<void> {
   border-radius: 4px;
   background: var(--app-surface);
 }
+.file-list-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--app-border);
+}
 .file-list {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--app-border);
-  max-height: 240px;
+  max-height: 184px;
   overflow-y: auto;
+  padding-right: 2px;
 }
 .file-row {
+  flex-shrink: 0;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  padding: 8px 10px;
+  padding: 7px 10px;
   border-radius: var(--app-radius-sm);
   background: var(--app-surface-2);
   border: 1px solid var(--app-border);

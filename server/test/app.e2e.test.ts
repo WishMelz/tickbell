@@ -1,4 +1,6 @@
 import * as fs from 'node:fs';
+import * as http from 'node:http';
+import type * as net from 'node:net';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import type { INestApplication } from '@nestjs/common';
@@ -26,6 +28,7 @@ import { TelegramProvider } from '../src/modules/notifications/providers/telegra
 import { WebhookProvider } from '../src/modules/notifications/providers/webhook.provider';
 import { WeComProvider } from '../src/modules/notifications/providers/wecom.provider';
 import type { HttpPostFn } from '../src/modules/notifications/http/pinned-fetch';
+import { getActiveProxyContext, type ProxyTarget } from '../src/modules/notifications/http/proxy-dispatcher';
 import { SchedulerService } from '../src/modules/scheduler/scheduler.service';
 
 interface TestHarness {
@@ -1059,6 +1062,199 @@ describe('TickBell end-to-end integration', () => {
         if (app) await app.close();
       }
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('manages proxies, verifies connectivity, binds channels to proxies across delivery/backup, and detaches on delete', async () => {
+    const { app, httpPost, scheduler, loginCookie } = await createTestApp();
+    const server = app.getHttpServer();
+    const cookie = await loginCookie();
+
+    // Real local target + HTTP proxy for live connectivity check
+    const targetServer = http.createServer((_req, res) => {
+      res.writeHead(204);
+      res.end();
+    });
+    const proxyServer = http.createServer((req, res) => {
+      const authHeader = req.headers['proxy-authorization'];
+      const expected = `Basic ${Buffer.from('u1:p1').toString('base64')}`;
+      if (authHeader !== expected) {
+        res.writeHead(407);
+        res.end('auth required');
+        return;
+      }
+      const targetUrl = new URL(req.url!);
+      const up = http.request(
+        { hostname: targetUrl.hostname, port: targetUrl.port, path: targetUrl.pathname, method: req.method },
+        (upRes) => {
+          res.writeHead(upRes.statusCode ?? 502);
+          upRes.pipe(res);
+        },
+      );
+      req.pipe(up);
+    });
+    await new Promise<void>((r) => targetServer.listen(0, '127.0.0.1', r));
+    await new Promise<void>((r) => proxyServer.listen(0, '127.0.0.1', r));
+    const targetPort = (targetServer.address() as net.AddressInfo).port;
+    const proxyPort = (proxyServer.address() as net.AddressInfo).port;
+
+    try {
+      // 1. Adhoc proxy test before saving (wrong password -> 407 failure, right password -> 204 ok)
+      const badAdhoc = await request(server)
+        .post('/api/proxies/test')
+        .set('Cookie', cookie)
+        .send({
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: proxyPort,
+          username: 'u1',
+          password: 'wrong',
+          testUrl: `http://127.0.0.1:${targetPort}/check`,
+        })
+        .expect(200);
+      expect(badAdhoc.body.data.ok).toBe(false);
+      expect(badAdhoc.body.data.statusCode).toBe(407);
+
+      const goodAdhoc = await request(server)
+        .post('/api/proxies/test')
+        .set('Cookie', cookie)
+        .send({
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: proxyPort,
+          username: 'u1',
+          password: 'p1',
+          testUrl: `http://127.0.0.1:${targetPort}/check`,
+        })
+        .expect(200);
+      expect(goodAdhoc.body.data.ok).toBe(true);
+      expect(goodAdhoc.body.data.statusCode).toBe(204);
+
+      // 2. Create proxy (masks password, exposes hasPassword=true)
+      const createdProxy = await request(server)
+        .post('/api/proxies')
+        .set('Cookie', cookie)
+        .send({
+          name: '本地 HTTP 代理',
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: proxyPort,
+          username: 'u1',
+          password: 'p1',
+          enabled: true,
+        })
+        .expect(201);
+      const proxyId = createdProxy.body.data.id as string;
+      expect(createdProxy.body.data.hasPassword).toBe(true);
+      expect(createdProxy.body.data.password).toBeUndefined();
+
+      // 3. Test saved proxy
+      const savedTest = await request(server)
+        .post(`/api/proxies/${proxyId}/test`)
+        .set('Cookie', cookie)
+        .send({ testUrl: `http://127.0.0.1:${targetPort}/check` })
+        .expect(200);
+      expect(savedTest.body.data.ok).toBe(true);
+      expect(savedTest.body.data.statusCode).toBe(204);
+
+      // 4. Bind proxy to channel and verify proxy context propagates on channel test & scheduled delivery
+      const observedProxies: Array<ProxyTarget | null> = [];
+      httpPost.mockImplementation(async () => {
+        observedProxies.push(getActiveProxyContext());
+        return { ok: true, status: 200, text: JSON.stringify({ code: 200, message: 'ok' }) };
+      });
+
+      const ch = await request(server)
+        .post('/api/channels')
+        .set('Cookie', cookie)
+        .send({
+          name: '代理 Bark',
+          type: 'bark',
+          enabled: true,
+          proxyId,
+          config: { serverUrl: 'https://api.day.app', deviceKey: 'dk-proxy' },
+        })
+        .expect(201);
+      expect(ch.body.data.proxyId).toBe(proxyId);
+      expect(ch.body.data.proxyName).toBe('本地 HTTP 代理');
+      expect(ch.body.data.proxyEnabled).toBe(true);
+
+      const proxyList = await request(server).get('/api/proxies').set('Cookie', cookie).expect(200);
+      expect(proxyList.body.data[0].channelCount).toBe(1);
+
+      await request(server).post(`/api/channels/${ch.body.data.id}/test`).set('Cookie', cookie).expect(200);
+      expect(observedProxies.at(-1)).toMatchObject({
+        protocol: 'http',
+        host: '127.0.0.1',
+        port: proxyPort,
+        username: 'u1',
+        password: 'p1',
+      });
+
+      const rem = await request(server)
+        .post('/api/reminders')
+        .set('Cookie', cookie)
+        .send({
+          title: '代理投递测试',
+          scheduledLocal: '2026-11-24T13:00',
+          timezone: 'UTC',
+          isRepeating: false,
+          repeatEvery: null,
+          repeatUnit: null,
+          channelIds: [ch.body.data.id],
+        })
+        .expect(201);
+      await scheduler.runTick(Date.parse(rem.body.data.nextRunAt) + 2_000);
+      expect(observedProxies).toHaveLength(2);
+      expect(observedProxies[1]?.port).toBe(proxyPort);
+
+      // 5. Disabling proxy fails channel test cleanly instead of silently bypassing
+      await request(server)
+        .put(`/api/proxies/${proxyId}`)
+        .set('Cookie', cookie)
+        .send({
+          name: '本地 HTTP 代理',
+          protocol: 'http',
+          host: '127.0.0.1',
+          port: proxyPort,
+          username: 'u1',
+          enabled: false,
+        })
+        .expect(200);
+      const disabledTest = await request(server)
+        .post(`/api/channels/${ch.body.data.id}/test`)
+        .set('Cookie', cookie)
+        .expect(200);
+      expect(disabledTest.body.data.ok).toBe(false);
+      expect(disabledTest.body.data.error).toContain('已停用');
+
+      // 6. Export & restore round-trip preserves proxies and channel.proxy_id
+      const exported = await request(server)
+        .post('/api/backup/export')
+        .set('Cookie', cookie)
+        .send({ password: 'test-admin-password' })
+        .expect(200);
+      expect(exported.body.data.proxies).toHaveLength(1);
+      expect(exported.body.data.channels[0].proxy_id).toBe(proxyId);
+
+      await request(server)
+        .post('/api/backup/restore')
+        .set('Cookie', cookie)
+        .send({ backup: exported.body.data, password: 'test-admin-password', confirmation: 'RESTORE' })
+        .expect(200);
+      const newCookie = await loginCookie();
+
+      const restoredChannels = await request(server).get('/api/channels').set('Cookie', newCookie).expect(200);
+      expect(restoredChannels.body.data[0].proxyId).toBe(proxyId);
+
+      // 7. Deleting proxy automatically detaches channel back to direct mode
+      const delRes = await request(server).delete(`/api/proxies/${proxyId}`).set('Cookie', newCookie).expect(200);
+      expect(delRes.body.data).toEqual({ deleted: true, detachedChannels: 1 });
+      const afterDeleteChannels = await request(server).get('/api/channels').set('Cookie', newCookie).expect(200);
+      expect(afterDeleteChannels.body.data[0].proxyId).toBeNull();
+    } finally {
+      await new Promise<void>((r) => proxyServer.close(() => r()));
+      await new Promise<void>((r) => targetServer.close(() => r()));
     }
   });
 });

@@ -52,6 +52,34 @@
 请求体 `{ "globalTimezone": "Asia/Shanghai" }`（IANA 时区名），返回同样的结构。
 规则：跟随全局时区的提醒（`timezone = null`）保持原来的**本地日期和钟点**不变，重新换算 `starts_at` 和 `next_run_at`，在同一个事务里完成。
 
+## 2.5 网络代理 Proxies
+
+> 支持在设置中配置多个 HTTP / HTTPS / SOCKS5 代理并在线校验连通性，通知渠道可通过 `proxyId` 按需选择直连或使用指定代理。
+
+### ProxyView（代理对象）
+```ts
+{
+  id: string; name: string; protocol: 'http' | 'https' | 'socks5';
+  host: string; port: number; username: string; hasPassword: boolean;
+  enabled: boolean; channelCount: number;
+  createdAt: string; updatedAt: string;
+}
+```
+（密码不在接口中明文返回；编辑时留空保持原密码，传 `clearPassword: true` 可清空密码。）
+
+### `GET /api/proxies` → `ProxyView[]`
+### `POST /api/proxies` → 201 `ProxyView`
+请求体 `{ "name": "本地 Clash", "protocol": "socks5", "host": "127.0.0.1", "port": 7890, "username": "", "password": "", "enabled": true }`
+### `PUT /api/proxies/:id` → `ProxyView`
+请求体同上，可选 `clearPassword?: boolean`。
+### `DELETE /api/proxies/:id` → `{ "deleted": true, "detachedChannels": number }`
+删除代理时，引用该代理的通知渠道会自动解除绑定并恢复直连（`proxy_id = NULL`）。
+### `POST /api/proxies/test` / `POST /api/proxies/:id/test` → 200
+请求体可选 `testUrl`（默认 `https://www.gstatic.com/generate_204`）；`/api/proxies/test` 接受未保存的临时代理参数（带 `id` 且密码留空时复用已保存密码）。返回：
+```ts
+{ ok: boolean; statusCode: number | null; latencyMs: number; targetUrl: string; error: string | null }
+```
+
 ## 3. 通知渠道 Channels
 
 ### `GET /api/channels/types` → 已注册的渠道类型（按 `order` 升序，内置 7 种）
@@ -81,6 +109,10 @@
 {
   id: string; name: string; type: string; enabled: boolean;
   supported: boolean;               // type 已注册时为 true；导入未注册的第三方类型时为 false
+  proxyId: string | null;           // 绑定的网络代理 ID；null 表示直连
+  proxyName: string | null;
+  proxyProtocol: 'http' | 'https' | 'socks5' | null;
+  proxyEnabled: boolean | null;
   config: Record<string, unknown> | null; // 渠道配置对象（内置渠道均明文回填，方便查看与编辑）
   secretsSet: string[];             // 若自定义渠道定义了 secret 字段，列出已设置的字段名
   summary: { label: string; value: string }[]; // 后端生成的卡片关键摘要行（已脱敏，如目标主机/Chat ID/签名状态）
@@ -91,10 +123,10 @@
 
 ### `GET /api/channels` → `ChannelView[]`（按创建时间升序）
 ### `POST /api/channels` → 201 `ChannelView`
-请求体 `{ "name": "我的 iPhone", "type": "bark", "enabled": true, "config": { "serverUrl": "...", "deviceKey": "...", "level": "active" } }`
+请求体 `{ "name": "我的 iPhone", "type": "bark", "enabled": true, "proxyId": null, "config": { "serverUrl": "...", "deviceKey": "...", "level": "active" } }`
 规则：`name` 1–80 个字符；`type` 必须已注册；启用时配置必须完整；默认允许自建内网与公网 `http(s)` 地址（可通过 `ALLOW_PRIVATE_URLS=false` 开启严格公网限制）。
 ### `PUT /api/channels/:id` → `ChannelView`
-请求体 `{ "name", "enabled", "config" }`（不能改 type）。所有内置渠道的配置与凭据均按明文返回和回填，编辑时可直接修改；`supported=false` 的渠道只能改名或停用。
+请求体 `{ "name", "enabled", "proxyId", "config" }`（不能改 type；`proxyId` 省略保持原绑定，传 `null` 恢复直连）。所有内置渠道的配置与凭据均按明文返回和回填，编辑时可直接修改；`supported=false` 的渠道只能改名或停用。
 ### `DELETE /api/channels/:id` → `null`
 被提醒或投递记录引用时返回 409，提示「可以改为停用」。
 ### `POST /api/channels/:id/test` → 永远返回 200

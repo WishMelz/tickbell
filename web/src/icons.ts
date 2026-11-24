@@ -158,6 +158,41 @@ export const icons = {
   warning: symOutlinedWarning,
 } as const;
 
+/** 7 种内置渠道的品牌 SVG 图标与配色 */
+const svgTelegram =
+  'M11.944 0A12 12 0 0 0 0 12a12 12 0 0 0 12 12 12 12 0 0 0 12-12A12 12 0 0 0 12 0zm4.962 7.224c.1-.002.321.023.465.14a.506.506 0 0 1 .171.325c.016.093.036.306.02.472-.18 1.898-.962 6.502-1.36 8.627-.168.9-.499 1.201-.82 1.23-.696.065-1.225-.46-1.9-.902-1.056-.693-1.653-1.124-2.678-1.8-1.185-.78-.417-1.21.258-1.91.177-.184 3.247-2.977 3.307-3.23.007-.032.014-.15-.056-.212s-.174-.041-.249-.024c-.106.024-1.793 1.14-5.061 3.345-.48.33-.913.49-1.302.48-.428-.008-1.252-.241-1.865-.44-.752-.245-1.349-.374-1.297-.789.027-.216.325-.437.893-.663 3.498-1.524 5.83-2.529 6.998-3.014 3.332-1.386 4.025-1.627 4.476-1.635z|0 0 24 24';
+
+const svgBark =
+  'M12 2.5a7 7 0 0 0-7 7v4.1l-1.45 2.18A1 1 0 0 0 4.38 17.5h15.24a1 1 0 0 0 .83-1.72L19 13.6V9.5a7 7 0 0 0-7-7zm0 19a3 3 0 0 0 2.83-2h-5.66A3 3 0 0 0 12 21.5z|0 0 24 24';
+
+const svgWeCom =
+  'M9.2 3C4.67 3 1 6.08 1 9.88c0 2.16 1.2 4.08 3.07 5.34l-.77 2.34 2.7-1.35c.98.29 2.05.45 3.2.45.28 0 .56-.01.83-.04-.17-.55-.26-1.13-.26-1.73 0-3.54 3.35-6.41 7.49-6.41.29 0 .58.02.86.05C17.44 5.37 13.71 3 9.2 3zm-2.9 5.5a1.1 1.1 0 1 1 0-2.2 1.1 1.1 0 0 1 0 2.2zm5.8 0a1.1 1.1 0 1 1 0-2.2 1.1 1.1 0 0 1 0 2.2zm5.16 1.5c-3.44 0-6.24 2.33-6.24 5.2 0 2.87 2.8 5.2 6.24 5.2.72 0 1.41-.11 2.06-.3l2.03 1.02-.57-1.74c1.38-.95 2.22-2.46 2.22-4.18 0-2.87-2.8-5.2-6.24-5.2zm-2.06 4.4a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8zm4.12 0a.9.9 0 1 1 0-1.8.9.9 0 0 1 0 1.8z|0 0 24 24';
+
+const svgDingTalk =
+  'M12 1.5C6.2 1.5 1.5 6.2 1.5 12S6.2 22.5 12 22.5 22.5 17.8 22.5 12 17.8 1.5 12 1.5zm4.82 9.45l-2.02 2.48 1.38.1-4.88 5.42 1.02-3.95-1.72-.14 1.35-3.05c-1.95-.52-3.42-1.82-4.15-3.48 1.85.94 4.1 1.38 6.45 1.18-1.4-.92-2.48-2.16-3.02-3.66 2.22 1.24 4.86 1.82 7.5 1.56-.4 1.26-1.08 2.48-1.91 3.54z|0 0 24 24';
+
+const svgFeishu =
+  'M4.2 5.4c4.1 1.1 7.9 3.6 10.6 7.1 1.8-1.9 3.6-4.1 5-6.6.4-.7-.3-1.5-1-1.2-3.5 1.4-7.1 2.1-10.7 1.8-1.3-.1-2.6-.5-3.7-1.1-.6-.3-1 .3-.2 0zm-.9 3.8c3.6 2.2 6.8 5.4 9 9.2.6 1 2 .9 2.5-.1 1.4-2.8 3.1-5.6 5.4-7.8-3.4 1.3-6.7 1.5-9.8.6-2.4-.7-4.8-2.1-6.9-3.9-.6-.5-1.2.4-.2 2zm3.2 8.7c1.6 1.3 3.4 2.4 5.3 3.1.9.3 1.7-.6 1.2-1.4-1.5-2.3-3.5-4.4-5.9-6-.7-.5-1.4.4-1 1.1.4.8.7 1.6.4 3.2z|0 0 24 24';
+
+const svgServerChan =
+  'M12 2C6.48 2 2 6.14 2 11.25c0 2.75 1.31 5.22 3.39 6.91L4.5 22l4.18-1.67c1.05.31 2.16.47 3.32.47 5.52 0 10-4.14 10-9.55C22 6.14 17.52 2 12 2zm-.95 14.2l.82-4.1h-2.9l4.08-5.3-.82 4.1h2.9l-4.08 5.3z|0 0 24 24';
+
+export interface ChannelBrandStyle {
+  icon: string;
+  color: string;
+  bg: string;
+}
+
+const channelBrandMap: Record<string, ChannelBrandStyle> = {
+  bark: { icon: svgBark, color: '#FF5A5F', bg: 'rgba(255, 90, 95, 0.13)' },
+  telegram: { icon: svgTelegram, color: '#26A5E4', bg: 'rgba(38, 165, 228, 0.14)' },
+  wecom: { icon: svgWeCom, color: '#2782D7', bg: 'rgba(39, 130, 215, 0.14)' },
+  dingtalk: { icon: svgDingTalk, color: '#0089FF', bg: 'rgba(0, 137, 255, 0.14)' },
+  feishu: { icon: svgFeishu, color: '#3370FF', bg: 'rgba(51, 112, 255, 0.14)' },
+  serverchan: { icon: svgServerChan, color: '#F59E0B', bg: 'rgba(245, 158, 11, 0.15)' },
+  webhook: { icon: symOutlinedWebhook, color: '#7C3AED', bg: 'rgba(124, 58, 237, 0.14)' },
+};
+
 /** 后端 /api/channels/types 返回的 icon 是 Material 图标名，这里映射成 SVG；未知名称回退到通知图标 */
 const channelIconMap: Record<string, string> = {
   notifications: symOutlinedNotifications,
@@ -173,4 +208,15 @@ const channelIconMap: Record<string, string> = {
 
 export function channelIcon(name: string | null | undefined): string {
   return (name && channelIconMap[name]) || symOutlinedNotifications;
+}
+
+export function channelBrand(type: string | null | undefined, fallbackIcon?: string | null): ChannelBrandStyle {
+  if (type && channelBrandMap[type]) {
+    return channelBrandMap[type]!;
+  }
+  return {
+    icon: channelIcon(fallbackIcon),
+    color: 'var(--q-primary)',
+    bg: 'var(--app-selected)',
+  };
 }

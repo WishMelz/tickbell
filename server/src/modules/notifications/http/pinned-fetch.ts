@@ -1,9 +1,10 @@
 import * as dns from 'node:dns/promises';
 import type { LookupAddress } from 'node:dns';
-import { Agent, fetch as undiciFetch, type Response as UndiciResponse } from 'undici';
+import { Agent, type Dispatcher, fetch as undiciFetch, type Response as UndiciResponse } from 'undici';
 import ipaddr from 'ipaddr.js';
 import { ValidationError } from '../../../common/errors';
 import type { NotificationErrorClass, NotificationResult } from '../channel-provider.interface';
+import { createProxyDispatcher, getActiveProxyContext, type ProxyTarget } from './proxy-dispatcher';
 import { isPublicUnicast, normalizeHostname, parsePublicHttpUrl, PrivateNetworkPolicy } from './url-policy';
 
 export interface PinnedPostOptions {
@@ -13,6 +14,17 @@ export interface PinnedPostOptions {
   body: string;
   timeoutMs?: number;
   policy: PrivateNetworkPolicy;
+  proxy?: ProxyTarget | null;
+}
+
+export interface PinnedRequestOptions {
+  url: string;
+  method?: 'GET' | 'HEAD' | 'POST' | 'PUT';
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+  policy: PrivateNetworkPolicy;
+  proxy?: ProxyTarget | null;
 }
 
 export interface PinnedHttpResponse {
@@ -60,6 +72,7 @@ const RETRYABLE_ERR_CODES = new Set([
 /** Redacts secret tokens/keys in URLs or error text before writing to logs or delivery error fields. */
 export function sanitizeSensitiveText(text: string): string {
   return text
+    .replace(/((?:https?|socks5h?):\/\/)([^@\s/]+)@/gi, '$1[REDACTED]@')
     .replace(/\/bot\d+:[A-Za-z0-9_-]+/g, '/bot[REDACTED]')
     .replace(/(\/bot\/v2\/hook\/)[A-Za-z0-9_-]+/gi, '$1[REDACTED]')
     .replace(/([?&](?:key|access_token|token|secret|sign|sendkey)=)[^&\s"']+/gi, '$1[REDACTED]')
@@ -73,6 +86,17 @@ function extractErrorCode(error: unknown): string | undefined {
   if (typeof err.code === 'string') return err.code;
   if (err.cause) return extractErrorCode(err.cause);
   return undefined;
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return String(error);
+  const cause = (error as { cause?: unknown }).cause;
+  if (cause instanceof Error && cause.message) {
+    if (!error.message || error.message === 'fetch failed') {
+      return extractErrorMessage(cause);
+    }
+  }
+  return error.message;
 }
 
 function isTlsError(code: string | undefined, message: string): boolean {
@@ -130,52 +154,67 @@ export async function resolveAndValidateHost(
 }
 
 /**
- * Performs an HTTP POST/PUT request with optional DNS pinning (when strict public-only mode is enabled)
+ * Performs an HTTP request with optional DNS pinning (direct mode) or configured HTTP/HTTPS/SOCKS5 proxy,
  * and classifies network failures into retryable vs permanent vs unknown.
  */
-export async function pinnedHttpPost(options: PinnedPostOptions): Promise<PinnedHttpResponse> {
+export async function pinnedHttpRequest(options: PinnedRequestOptions): Promise<PinnedHttpResponse> {
   const timeoutMs = options.timeoutMs ?? 15_000;
   const method = options.method ?? 'POST';
-  const { url, addresses } = await resolveAndValidateHost(options.url, options.policy);
+  const proxy = options.proxy !== undefined ? options.proxy : getActiveProxyContext();
 
-  const agent = addresses
-    ? new Agent({
-        connectTimeout: Math.min(timeoutMs, 10_000),
-        headersTimeout: timeoutMs,
-        bodyTimeout: timeoutMs,
-        connect: {
-          lookup: (_hostname, lookupOpts, callback) => {
-            if (lookupOpts && typeof lookupOpts === 'object' && lookupOpts.all) {
-              callback(null, addresses);
-              return;
-            }
-            const family = lookupOpts && typeof lookupOpts === 'object' ? lookupOpts.family : undefined;
-            const match = family ? addresses.find((item) => item.family === family) : addresses[0];
-            const chosen = match ?? addresses[0]!;
-            callback(null, chosen.address, chosen.family);
+  let url: string;
+  let dispatcher: Dispatcher;
+
+  if (proxy) {
+    try {
+      url = parsePublicHttpUrl(options.url, '通知地址', options.policy);
+    } catch (error) {
+      throw new SsrfBlockedError(error instanceof Error ? error.message : '通知地址不合法');
+    }
+    dispatcher = createProxyDispatcher(proxy, timeoutMs);
+  } else {
+    const resolved = await resolveAndValidateHost(options.url, options.policy);
+    url = resolved.url;
+    const addresses = resolved.addresses;
+    dispatcher = addresses
+      ? new Agent({
+          connectTimeout: Math.min(timeoutMs, 10_000),
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
+          connect: {
+            lookup: (_hostname, lookupOpts, callback) => {
+              if (lookupOpts && typeof lookupOpts === 'object' && lookupOpts.all) {
+                callback(null, addresses);
+                return;
+              }
+              const family = lookupOpts && typeof lookupOpts === 'object' ? lookupOpts.family : undefined;
+              const match = family ? addresses.find((item) => item.family === family) : addresses[0];
+              const chosen = match ?? addresses[0]!;
+              callback(null, chosen.address, chosen.family);
+            },
           },
-        },
-      })
-    : new Agent({
-        connectTimeout: Math.min(timeoutMs, 10_000),
-        headersTimeout: timeoutMs,
-        bodyTimeout: timeoutMs,
-      });
+        })
+      : new Agent({
+          connectTimeout: Math.min(timeoutMs, 10_000),
+          headersTimeout: timeoutMs,
+          bodyTimeout: timeoutMs,
+        });
+  }
 
   try {
     const response: UndiciResponse = await undiciFetch(url, {
       method,
       redirect: 'manual',
       headers: options.headers,
-      body: options.body,
-      dispatcher: agent,
+      body: method === 'GET' || method === 'HEAD' ? undefined : options.body,
+      dispatcher,
       signal: AbortSignal.timeout(timeoutMs),
     });
     const text = await response.text();
     return { ok: response.ok, status: response.status, text };
   } catch (error) {
     const code = extractErrorCode(error);
-    const rawMessage = error instanceof Error ? error.message : String(error);
+    const rawMessage = extractErrorMessage(error);
     const message = sanitizeSensitiveText(rawMessage);
     if (error instanceof SsrfBlockedError || error instanceof ValidationError) {
       throw new SsrfBlockedError(message);
@@ -195,8 +234,23 @@ export async function pinnedHttpPost(options: PinnedPostOptions): Promise<Pinned
     }
     throw new UnknownNetworkError(message);
   } finally {
-    await agent.close().catch(() => undefined);
+    await dispatcher.close().catch(() => undefined);
   }
+}
+
+/**
+ * Performs an HTTP POST/PUT request with optional DNS pinning or configured proxy.
+ */
+export async function pinnedHttpPost(options: PinnedPostOptions): Promise<PinnedHttpResponse> {
+  return pinnedHttpRequest({
+    url: options.url,
+    method: options.method ?? 'POST',
+    headers: options.headers,
+    body: options.body,
+    timeoutMs: options.timeoutMs,
+    policy: options.policy,
+    proxy: options.proxy,
+  });
 }
 
 export function classifyHttpStatus(status: number): NotificationErrorClass {

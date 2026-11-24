@@ -1,7 +1,7 @@
 {
   "name": "tickbell-web",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "type": "module",
   "description": "TickBell 提醒系统前端（Vue 3 + Vite + Quasar）",
   "scripts": {

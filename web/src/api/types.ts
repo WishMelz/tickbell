@@ -17,6 +17,53 @@ export interface Settings {
   globalTimezone: string;
 }
 
+// ---------- Proxies ----------
+export type ProxyProtocol = 'http' | 'https' | 'socks5';
+
+export interface ProxyView {
+  id: string;
+  name: string;
+  protocol: ProxyProtocol;
+  host: string;
+  port: number;
+  username: string;
+  hasPassword: boolean;
+  enabled: boolean;
+  channelCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProxyInput {
+  name: string;
+  protocol: ProxyProtocol;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  clearPassword?: boolean;
+  enabled: boolean;
+}
+
+export interface ProxyTestInput {
+  id?: string;
+  protocol: ProxyProtocol;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  clearPassword?: boolean;
+  testUrl?: string;
+}
+
+export interface ProxyTestResult {
+  ok: boolean;
+  statusCode: number | null;
+  latencyMs: number;
+  targetUrl: string;
+  error: string | null;
+}
+
 // ---------- Channels ----------
 export type ChannelFieldControl = 'text' | 'password' | 'url' | 'select' | 'switch' | 'number' | 'textarea';
 
@@ -66,6 +113,10 @@ export interface ChannelView {
   type: string;
   enabled: boolean;
   supported: boolean;
+  proxyId: string | null;
+  proxyName: string | null;
+  proxyProtocol: ProxyProtocol | null;
+  proxyEnabled: boolean | null;
   config: Record<string, unknown> | null;
   secretsSet: string[];
   configured: boolean;
@@ -78,12 +129,14 @@ export interface ChannelCreateInput {
   name: string;
   type: string;
   enabled: boolean;
+  proxyId?: string | null;
   config: Record<string, unknown>;
 }
 
 export interface ChannelUpdateInput {
   name: string;
   enabled: boolean;
+  proxyId?: string | null;
   /** 省略表示不改配置（只改名 / 启停，supported=false 的渠道只能这样改） */
   config?: Record<string, unknown>;
 }

@@ -4,6 +4,8 @@ import { epochToIso } from '../../common/time';
 import { ChannelsService } from '../channels/channels.service';
 import type { NotificationMessage } from '../notifications/channel-provider.interface';
 import { ChannelRegistry } from '../notifications/channel-registry.service';
+import { runWithProxyContext } from '../notifications/http/proxy-dispatcher';
+import { ProxiesService } from '../proxies/proxies.service';
 import { RemindersRepository } from '../reminders/reminders.repository';
 import { SettingsService } from '../settings/settings.service';
 import {
@@ -55,6 +57,7 @@ export class DeliveriesService {
     private readonly channelsService: ChannelsService,
     private readonly remindersRepo: RemindersRepository,
     private readonly registry: ChannelRegistry,
+    private readonly proxies: ProxiesService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -147,6 +150,12 @@ export class DeliveriesService {
       return;
     }
 
+    const resolvedProxy = this.proxies.resolveForChannel(channel.proxyId);
+    if (resolvedProxy.error) {
+      this.repo.markFailedWithoutAttempt(params.deliveryId, resolvedProxy.error, startedAt);
+      return;
+    }
+
     const message: NotificationMessage = {
       eventId: params.eventId,
       reminderId: params.reminderId,
@@ -159,7 +168,7 @@ export class DeliveriesService {
       isLate: params.isLate,
     };
 
-    const result = await provider.send(message, channel.config);
+    const result = await runWithProxyContext(resolvedProxy.target, () => provider.send(message, channel.config!));
     const finishedAt = params.now ?? Date.now();
 
     if (result.ok) {

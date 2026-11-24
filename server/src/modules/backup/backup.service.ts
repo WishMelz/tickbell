@@ -123,12 +123,26 @@ const channelV1Schema = z.strictObject({
   updated_at: timestamp,
 });
 
+const proxySchema = z.strictObject({
+  id: identifier,
+  name: z.string().min(1).max(80),
+  protocol: z.enum(['http', 'https', 'socks5']),
+  host: z.string().min(1).max(255),
+  port: z.number().int().min(1).max(65535),
+  username: z.string().max(128),
+  password: z.string().max(256),
+  enabled: flag,
+  created_at: timestamp,
+  updated_at: timestamp,
+});
+
 const channelV2Schema = z.strictObject({
   id: identifier,
   name: z.string().min(1).max(80),
   type: z.string().min(1).max(64),
   enabled: flag,
   config: z.string().nullable(),
+  proxy_id: identifier.nullable().optional(),
   created_at: timestamp,
   updated_at: timestamp,
 });
@@ -194,6 +208,7 @@ const backupV2Schema = z.strictObject({
   version: z.literal(2),
   exportedAt: z.iso.datetime(),
   settings: z.array(settingSchema),
+  proxies: z.array(proxySchema).optional(),
   reminders: z.array(reminderSchema),
   channels: z.array(channelV2Schema),
   reminderChannels: z.array(reminderChannelSchema),
@@ -206,6 +221,7 @@ export interface FullBackupExport {
   version: 2;
   exportedAt: string;
   settings: Array<z.infer<typeof settingSchema>>;
+  proxies: Array<z.infer<typeof proxySchema>>;
   reminders: Array<z.infer<typeof reminderSchema>>;
   channels: Array<z.infer<typeof channelV2Schema>>;
   reminderChannels: Array<z.infer<typeof reminderChannelSchema>>;
@@ -215,6 +231,7 @@ interface NormalizedBackup {
   sourceVersion: 1 | 2;
   exportedAt: string;
   settings: Array<z.infer<typeof settingSchema>>;
+  proxies: Array<z.infer<typeof proxySchema>>;
   reminders: Array<z.infer<typeof reminderSchema>>;
   channels: Array<z.infer<typeof channelV2Schema>>;
   reminderChannels: Array<z.infer<typeof reminderChannelSchema>>;
@@ -299,6 +316,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         sourceVersion: 1,
         exportedAt: d.exportedAt,
         settings: d.settings,
+        proxies: [],
         reminders: d.reminders,
         channels: d.channels.map((ch) => ({
           id: ch.id,
@@ -306,6 +324,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
           type: ch.type,
           enabled: ch.enabled,
           config: ch.config,
+          proxy_id: null,
           created_at: ch.created_at,
           updated_at: ch.updated_at,
         })),
@@ -324,6 +343,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         sourceVersion: 2,
         exportedAt: d.exportedAt,
         settings: d.settings,
+        proxies: d.proxies ?? [],
         reminders: d.reminders,
         channels: d.channels,
         reminderChannels: d.reminderChannels,
@@ -349,6 +369,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
       throw new ValidationError(`未删除提醒不能超过 ${this.config.maxReminders} 条`);
     }
 
+    const proxyIds = assertUnique(normalized.proxies.map((r) => r.id), '代理 ID');
     const reminderIds = assertUnique(normalized.reminders.map((r) => r.id), '提醒 ID');
     const channelIds = assertUnique(normalized.channels.map((r) => r.id), '渠道 ID');
     assertUnique(normalized.deliveries.map((r) => r.id), '日志 ID');
@@ -359,6 +380,12 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
       normalized.reminderChannels.map((r) => JSON.stringify([r.reminder_id, r.channel_id])),
       '渠道关联',
     );
+
+    for (const ch of normalized.channels) {
+      if (ch.proxy_id && !proxyIds.has(ch.proxy_id)) {
+        throw new ValidationError('备份渠道引用了不存在的代理');
+      }
+    }
 
     for (const row of [...normalized.reminderChannels, ...normalized.deliveries]) {
       if (!reminderIds.has(row.reminder_id) || !channelIds.has(row.channel_id)) {
@@ -487,12 +514,16 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         >
       ).filter((row) => !INTERNAL_SETTING_KEYS.has(row.key));
 
+      const proxies = this.database.db
+        .prepare('SELECT id, name, protocol, host, port, username, password, enabled, created_at, updated_at FROM proxies')
+        .all() as Array<z.infer<typeof proxySchema>>;
+
       const reminders = this.database.db
         .prepare('SELECT * FROM reminders WHERE deleted_at IS NULL')
         .all() as Array<z.infer<typeof reminderSchema>>;
 
       const channels = this.database.db
-        .prepare('SELECT id, name, type, enabled, config, created_at, updated_at FROM channels')
+        .prepare('SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels')
         .all() as Array<z.infer<typeof channelV2Schema>>;
 
       const reminderChannels = this.database.db
@@ -509,6 +540,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         version: 2 as const,
         exportedAt: new Date().toISOString(),
         settings,
+        proxies,
         reminders,
         channels,
         reminderChannels,
@@ -540,6 +572,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         db.prepare('DELETE FROM reminder_channels').run();
         db.prepare('DELETE FROM reminders').run();
         db.prepare('DELETE FROM channels').run();
+        db.prepare('DELETE FROM proxies').run();
         db.prepare('DELETE FROM settings').run();
 
         const insertSetting = db.prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)');
@@ -562,8 +595,26 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
         // Rotate session generation to invalidate all existing sessions
         this.settings.rotateSessionGeneration(now);
 
+        const insertProxy = db.prepare(
+          'INSERT INTO proxies (id, name, protocol, host, port, username, password, enabled, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        );
+        for (const p of backup.proxies) {
+          insertProxy.run(
+            p.id,
+            p.name,
+            p.protocol,
+            p.host,
+            p.port,
+            p.username,
+            p.password,
+            p.enabled,
+            p.created_at,
+            p.updated_at,
+          );
+        }
+
         const insertChannel = db.prepare(
-          'INSERT INTO channels (id, name, type, enabled, config, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+          'INSERT INTO channels (id, name, type, enabled, config, proxy_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         );
         for (const ch of backup.channels) {
           const supported = this.registry.has(ch.type);
@@ -573,6 +624,7 @@ export class BackupService implements OnApplicationBootstrap, OnApplicationShutd
             ch.type,
             supported ? ch.enabled : 0, // Unsupported types forced disabled
             ch.config,
+            ch.proxy_id ?? null,
             ch.created_at,
             ch.updated_at,
           );

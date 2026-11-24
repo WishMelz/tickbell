@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue';
-import { api, type ChannelType, type ChannelView } from '@/api';
+import { api, type ChannelType, type ChannelView, type ProxyView } from '@/api';
 import ChannelEditorDialog from '@/components/channels/ChannelEditorDialog.vue';
 import { confirmDialog } from '@/composables/dialogs';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
-import { channelIcon, icons } from '@/icons';
+import { channelBrand, icons } from '@/icons';
 import { chipClass } from '@/utils/status';
 import { formatInstant } from '@/utils/time';
 
@@ -13,6 +13,7 @@ const loading = ref(true);
 const initialized = ref(false);
 const channels = ref<ChannelView[]>([]);
 const channelTypes = ref<ChannelType[]>([]);
+const proxies = ref<ProxyView[]>([]);
 const typeFilter = ref('');
 
 const editorOpen = ref(false);
@@ -20,10 +21,15 @@ const editingChannel = ref<ChannelView | null>(null);
 const testingId = ref<string | null>(null);
 
 const presentTypes = computed(() => {
-  const seen = new Set(channels.value.map((c) => c.type));
-  return [...seen].map((t) => ({
+  const counts = new Map<string, number>();
+  for (const ch of channels.value) {
+    counts.set(ch.type, (counts.get(ch.type) ?? 0) + 1);
+  }
+  return [...counts.entries()].map(([t, count]) => ({
     value: t,
     label: channelTypes.value.find((m) => m.type === t)?.name ?? t,
+    count,
+    brand: channelBrand(t, channelTypes.value.find((m) => m.type === t)?.icon),
   }));
 });
 
@@ -39,9 +45,14 @@ const supportedTypesLabel = computed(() => {
 async function loadData(silent = false): Promise<void> {
   if (!silent) loading.value = true;
   try {
-    const [chList, types] = await Promise.all([api.listChannels(), api.channelTypes()]);
+    const [chList, types, proxyList] = await Promise.all([
+      api.listChannels(),
+      api.channelTypes(),
+      api.listProxies(),
+    ]);
     channels.value = chList;
     channelTypes.value = types;
+    proxies.value = proxyList;
     initialized.value = true;
     if (typeFilter.value && !chList.some((c) => c.type === typeFilter.value)) {
       typeFilter.value = '';
@@ -125,27 +136,34 @@ async function onPullRefresh(done: () => void): Promise<void> {
     </div>
 
     <!-- 当已创建多种类型渠道时展示类型筛选条 -->
-    <div v-if="presentTypes.length > 1" class="type-filter q-mb-md">
-      <q-chip
-        clickable
-        :outline="typeFilter !== ''"
-        :color="typeFilter === '' ? 'primary' : 'grey-7'"
-        :text-color="typeFilter === '' ? 'white' : undefined"
-        @click="typeFilter = ''"
-      >
-        全部（{{ channels.length }}）
-      </q-chip>
-      <q-chip
-        v-for="item in presentTypes"
-        :key="item.value"
-        clickable
-        :outline="typeFilter !== item.value"
-        :color="typeFilter === item.value ? 'primary' : 'grey-7'"
-        :text-color="typeFilter === item.value ? 'white' : undefined"
-        @click="typeFilter = item.value"
-      >
-        {{ item.label }}
-      </q-chip>
+    <div v-if="presentTypes.length > 1" class="type-filter-wrap q-mb-md">
+      <div class="type-filter" role="tablist" aria-label="按渠道类型筛选">
+        <button
+          type="button"
+          role="tab"
+          class="type-tab"
+          :class="{ 'type-tab--active': typeFilter === '' }"
+          :aria-selected="typeFilter === ''"
+          @click="typeFilter = ''"
+        >
+          <span>全部</span>
+          <span class="type-count">{{ channels.length }}</span>
+        </button>
+        <button
+          v-for="item in presentTypes"
+          :key="item.value"
+          type="button"
+          role="tab"
+          class="type-tab"
+          :class="{ 'type-tab--active': typeFilter === item.value }"
+          :aria-selected="typeFilter === item.value"
+          @click="typeFilter = item.value"
+        >
+          <q-icon :name="item.brand.icon" size="15px" :style="{ color: item.brand.color }" />
+          <span>{{ item.label }}</span>
+          <span class="type-count">{{ item.count }}</span>
+        </button>
+      </div>
     </div>
 
     <q-pull-to-refresh :disable="!isMobile" @refresh="onPullRefresh">
@@ -163,8 +181,14 @@ async function onPullRefresh(done: () => void): Promise<void> {
       <div v-else class="channel-grid">
         <div v-for="ch in visibleChannels" :key="ch.id" class="app-card channel-card">
           <div class="ch-head">
-            <div class="ch-icon">
-              <q-icon :name="channelIcon(typeMeta(ch.type)?.icon)" size="22px" />
+            <div
+              class="ch-icon"
+              :style="{
+                color: channelBrand(ch.type, typeMeta(ch.type)?.icon).color,
+                background: channelBrand(ch.type, typeMeta(ch.type)?.icon).bg,
+              }"
+            >
+              <q-icon :name="channelBrand(ch.type, typeMeta(ch.type)?.icon).icon" size="21px" />
             </div>
             <div class="ch-title-wrap">
               <div class="ch-name">{{ ch.name }}</div>
@@ -184,6 +208,9 @@ async function onPullRefresh(done: () => void): Promise<void> {
                 {{ line.label }}：{{ line.value }}
               </div>
             </template>
+            <div v-if="ch.proxyId && ch.proxyName" class="meta-line" :class="{ 'text-warning': ch.proxyEnabled === false }">
+              网络代理：{{ ch.proxyName }}（{{ ch.proxyProtocol?.toUpperCase() }}{{ ch.proxyEnabled === false ? ' · 已停用' : '' }}）
+            </div>
             <div v-else-if="!ch.supported" class="meta-line text-warning">
               当前未注册该渠道插件，已保留原配置并强制停用。
             </div>
@@ -220,16 +247,71 @@ async function onPullRefresh(done: () => void): Promise<void> {
       v-model="editorOpen"
       :channel="editingChannel"
       :channel-types="channelTypes"
+      :proxies="proxies"
       @saved="loadData(true)"
     />
   </q-page>
 </template>
 
 <style scoped lang="scss">
-.type-filter {
+.type-filter-wrap {
   display: flex;
+}
+.type-filter {
+  display: inline-flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 12px;
+  background: var(--app-surface);
+  border: 1px solid var(--app-border);
+}
+.type-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--app-text-2);
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
+  height: 32px;
+  padding: 0 12px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+  &:hover {
+    background: var(--app-surface-2);
+    color: var(--app-text);
+  }
+}
+.type-tab--active {
+  background: var(--app-selected);
+  color: var(--q-primary);
+  font-weight: 600;
+  &:hover {
+    background: var(--app-selected);
+    color: var(--q-primary);
+  }
+  .type-count {
+    background: color-mix(in srgb, var(--q-primary) 16%, transparent);
+    color: var(--q-primary);
+  }
+}
+.type-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: var(--app-surface-2);
+  color: var(--app-text-3);
 }
 .channel-grid {
   display: grid;

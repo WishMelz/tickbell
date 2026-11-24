@@ -12,6 +12,7 @@ import { ChannelsModule } from './modules/channels/channels.module';
 import { DatabaseModule } from './modules/database/database.module';
 import { DeliveriesModule } from './modules/deliveries/deliveries.module';
 import { NotificationsModule } from './modules/notifications/notifications.module';
+import { ProxiesModule } from './modules/proxies/proxies.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
 import { SchedulerModule } from './modules/scheduler/scheduler.module';
 import { SettingsModule } from './modules/settings/settings.module';
@@ -71,6 +72,7 @@ import { SystemModule } from './modules/system/system.module';
     DatabaseModule,
     SettingsModule,
     AuthModule,
+    ProxiesModule,
     NotificationsModule,
     ChannelsModule,
     RemindersModule,

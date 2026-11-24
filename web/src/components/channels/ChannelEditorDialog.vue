@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
-import { api, type ChannelType, type ChannelView } from '@/api';
+import { api, type ChannelType, type ChannelView, type ProxyView } from '@/api';
 import { notifyError, notifySuccess, useResponsive } from '@/composables/useResponsive';
-import { channelIcon, icons } from '@/icons';
+import { channelBrand, icons } from '@/icons';
 import ChannelConfigForm from './ChannelConfigForm.vue';
 import { channelFormOverrides } from './channelFormOverrides';
 
@@ -10,6 +10,7 @@ const props = defineProps<{
   modelValue: boolean;
   channel: ChannelView | null;
   channelTypes: ChannelType[];
+  proxies: ProxyView[];
 }>();
 
 const emit = defineEmits<{
@@ -22,12 +23,28 @@ const saving = ref(false);
 const name = ref('');
 const type = ref('');
 const enabled = ref(true);
+const proxyId = ref<string | null>(null);
 const config = ref<Record<string, unknown>>({});
 
 const isEdit = computed(() => props.channel !== null);
 const isUnsupported = computed(() => Boolean(props.channel && !props.channel.supported));
 const activeType = computed(() => props.channelTypes.find((t) => t.type === type.value) ?? null);
 const FormComponent = computed(() => channelFormOverrides[type.value] ?? ChannelConfigForm);
+
+const proxyOptions = computed(() => [
+  {
+    label: '不使用代理（直连）',
+    value: null as string | null,
+    caption: '直接从本机发起网络请求',
+    disabled: false,
+  },
+  ...props.proxies.map((p) => ({
+    label: p.enabled ? `${p.name}（${p.protocol.toUpperCase()}）` : `${p.name}（${p.protocol.toUpperCase()} · 已停用）`,
+    value: p.id as string | null,
+    caption: `${p.protocol}://${p.host}:${p.port}`,
+    disabled: !p.enabled,
+  })),
+]);
 
 function buildInitialConfig(desc: ChannelType | null, existing: Record<string, unknown> | null): Record<string, unknown> {
   const result: Record<string, unknown> = {};
@@ -53,6 +70,7 @@ watch(
       name.value = props.channel.name;
       type.value = props.channel.type;
       enabled.value = props.channel.enabled;
+      proxyId.value = props.channel.proxyId ?? null;
       const desc = props.channelTypes.find((t) => t.type === props.channel!.type) ?? null;
       config.value = buildInitialConfig(desc, props.channel.config);
     } else {
@@ -60,6 +78,7 @@ watch(
       name.value = '';
       type.value = firstType?.type ?? '';
       enabled.value = true;
+      proxyId.value = null;
       config.value = buildInitialConfig(firstType, null);
     }
   },
@@ -114,7 +133,7 @@ async function submit(): Promise<void> {
         props.channel.id,
         isUnsupported.value
           ? { name: trimmedName, enabled: false }
-          : { name: trimmedName, enabled: enabled.value, config: buildPayloadConfig() },
+          : { name: trimmedName, enabled: enabled.value, proxyId: proxyId.value, config: buildPayloadConfig() },
       );
       notifySuccess('渠道已更新');
     } else {
@@ -122,6 +141,7 @@ async function submit(): Promise<void> {
         name: trimmedName,
         type: type.value,
         enabled: enabled.value,
+        proxyId: proxyId.value,
         config: buildPayloadConfig(),
       });
       notifySuccess('渠道已创建');
@@ -178,8 +198,16 @@ function close(): void {
           >
             <template #option="scope">
               <q-item v-bind="scope.itemProps">
-                <q-item-section avatar style="min-width: 36px">
-                  <q-icon :name="channelIcon(scope.opt.icon)" color="primary" size="20px" />
+                <q-item-section avatar style="min-width: 40px">
+                  <span
+                    class="type-icon-badge"
+                    :style="{
+                      color: channelBrand(scope.opt.type, scope.opt.icon).color,
+                      background: channelBrand(scope.opt.type, scope.opt.icon).bg,
+                    }"
+                  >
+                    <q-icon :name="channelBrand(scope.opt.type, scope.opt.icon).icon" size="18px" />
+                  </span>
                 </q-item-section>
                 <q-item-section>
                   <q-item-label>{{ scope.opt.name }}</q-item-label>
@@ -206,6 +234,31 @@ function close(): void {
             </div>
             <q-toggle v-model="enabled" color="primary" :disable="saving || isUnsupported" />
           </div>
+
+          <q-select
+            v-if="!isUnsupported"
+            v-model="proxyId"
+            :options="proxyOptions"
+            option-label="label"
+            option-value="value"
+            emit-value
+            map-options
+            outlined
+            dense
+            label="网络代理"
+            hint="可在「系统设置 → 网络代理」中新增并校验代理"
+            :behavior="isMobile ? 'dialog' : 'menu'"
+            :disable="saving"
+          >
+            <template #option="scope">
+              <q-item v-bind="scope.itemProps">
+                <q-item-section>
+                  <q-item-label :class="{ 'text-warning': scope.opt.disabled }">{{ scope.opt.label }}</q-item-label>
+                  <q-item-label caption>{{ scope.opt.caption }}</q-item-label>
+                </q-item-section>
+              </q-item>
+            </template>
+          </q-select>
 
           <q-separator />
 
@@ -249,5 +302,12 @@ function close(): void {
   background: color-mix(in srgb, var(--q-warning) 15%, transparent);
   color: var(--app-text);
   border: 1px solid color-mix(in srgb, var(--q-warning) 30%, transparent);
+}
+.type-icon-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  display: grid;
+  place-items: center;
 }
 </style>

@@ -9,6 +9,8 @@ import { ChannelsService } from '../channels/channels.service';
 import { DatabaseService } from '../database/database.service';
 import type { NotificationMessage } from '../notifications/channel-provider.interface';
 import { ChannelRegistry } from '../notifications/channel-registry.service';
+import { runWithProxyContext } from '../notifications/http/proxy-dispatcher';
+import { ProxiesService } from '../proxies/proxies.service';
 import { SettingsService } from '../settings/settings.service';
 import {
   type ReminderListFilters,
@@ -62,6 +64,7 @@ export class RemindersService {
     private readonly channelsRepo: ChannelsRepository,
     private readonly channelsService: ChannelsService,
     private readonly registry: ChannelRegistry,
+    private readonly proxies: ProxiesService,
     private readonly settings: SettingsService,
   ) {}
 
@@ -355,7 +358,12 @@ export class RemindersService {
         results.push({ channelId: channel.id, channelName: channel.name, ok: false, error: '请先填写并保存完整渠道配置' });
         continue;
       }
-      const res = await provider.send(message, channel.config);
+      const resolvedProxy = this.proxies.resolveForChannel(channel.proxyId);
+      if (resolvedProxy.error) {
+        results.push({ channelId: channel.id, channelName: channel.name, ok: false, error: resolvedProxy.error });
+        continue;
+      }
+      const res = await runWithProxyContext(resolvedProxy.target, () => provider.send(message, channel.config!));
       results.push({
         channelId: channel.id,
         channelName: channel.name,

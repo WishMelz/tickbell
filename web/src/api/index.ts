@@ -14,6 +14,10 @@ import type {
   DeliveryPage,
   DeliveryView,
   HealthStatus,
+  ProxyInput,
+  ProxyTestInput,
+  ProxyTestResult,
+  ProxyView,
   ReminderBatchInput,
   ReminderBatchResult,
   ReminderFilters,
@@ -42,6 +46,15 @@ export const api = {
   // Settings
   getSettings: () => request<Settings>('/settings'),
   updateSettings: (globalTimezone: string) => request<Settings>('/settings', { method: 'PUT', body: { globalTimezone } }),
+
+  // Proxies
+  listProxies: () => request<ProxyView[]>('/proxies'),
+  createProxy: (input: ProxyInput) => request<ProxyView>('/proxies', { method: 'POST', body: input }),
+  updateProxy: (id: string, input: ProxyInput) => request<ProxyView>(`/proxies/${enc(id)}`, { method: 'PUT', body: input }),
+  deleteProxy: (id: string) => request<{ deleted: true; detachedChannels: number }>(`/proxies/${enc(id)}`, { method: 'DELETE' }),
+  testProxy: (id: string, testUrl?: string) =>
+    request<ProxyTestResult>(`/proxies/${enc(id)}/test`, { method: 'POST', body: testUrl ? { testUrl } : {} }),
+  testAdhocProxy: (input: ProxyTestInput) => request<ProxyTestResult>('/proxies/test', { method: 'POST', body: input }),
 
   // Channels
   channelTypes: () => request<ChannelType[]>('/channels/types'),

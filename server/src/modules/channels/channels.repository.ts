@@ -7,6 +7,7 @@ export interface ChannelRow {
   type: string;
   enabled: number;
   config: string | null;
+  proxy_id: string | null;
   created_at: number;
   updated_at: number;
 }
@@ -17,13 +18,13 @@ export class ChannelsRepository {
 
   findAll(): ChannelRow[] {
     return this.database.db
-      .prepare('SELECT id, name, type, enabled, config, created_at, updated_at FROM channels ORDER BY created_at ASC, name ASC')
+      .prepare('SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels ORDER BY created_at ASC, name ASC')
       .all() as ChannelRow[];
   }
 
   findById(id: string): ChannelRow | null {
     const row = this.database.db
-      .prepare('SELECT id, name, type, enabled, config, created_at, updated_at FROM channels WHERE id = ?')
+      .prepare('SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels WHERE id = ?')
       .get(id) as ChannelRow | undefined;
     return row ?? null;
   }
@@ -32,7 +33,7 @@ export class ChannelsRepository {
     if (!ids.length) return [];
     const placeholders = ids.map(() => '?').join(',');
     return this.database.db
-      .prepare(`SELECT id, name, type, enabled, config, created_at, updated_at FROM channels WHERE id IN (${placeholders})`)
+      .prepare(`SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels WHERE id IN (${placeholders})`)
       .all(...ids) as ChannelRow[];
   }
 
@@ -44,16 +45,19 @@ export class ChannelsRepository {
   insert(row: ChannelRow): void {
     this.database.db
       .prepare(
-        `INSERT INTO channels (id, name, type, enabled, config, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO channels (id, name, type, enabled, config, proxy_id, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run(row.id, row.name, row.type, row.enabled, row.config, row.created_at, row.updated_at);
+      .run(row.id, row.name, row.type, row.enabled, row.config, row.proxy_id, row.created_at, row.updated_at);
   }
 
-  update(id: string, fields: { name: string; enabled: number; config: string | null; updated_at: number }): boolean {
+  update(
+    id: string,
+    fields: { name: string; enabled: number; config: string | null; proxy_id: string | null; updated_at: number },
+  ): boolean {
     const info = this.database.db
-      .prepare('UPDATE channels SET name = ?, enabled = ?, config = ?, updated_at = ? WHERE id = ?')
-      .run(fields.name, fields.enabled, fields.config, fields.updated_at, id);
+      .prepare('UPDATE channels SET name = ?, enabled = ?, config = ?, proxy_id = ?, updated_at = ? WHERE id = ?')
+      .run(fields.name, fields.enabled, fields.config, fields.proxy_id, fields.updated_at, id);
     return info.changes > 0;
   }
 

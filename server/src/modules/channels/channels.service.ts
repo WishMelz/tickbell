@@ -10,7 +10,9 @@ import type {
   NotificationResult,
 } from '../notifications/channel-provider.interface';
 import { ChannelRegistry } from '../notifications/channel-registry.service';
+import { type ProxyProtocol, runWithProxyContext } from '../notifications/http/proxy-dispatcher';
 import { PrivateNetworkPolicy } from '../notifications/http/url-policy';
+import { ProxiesService } from '../proxies/proxies.service';
 import { SettingsService } from '../settings/settings.service';
 import { type ChannelRow, ChannelsRepository } from './channels.repository';
 
@@ -20,6 +22,10 @@ export interface ChannelView {
   type: string;
   enabled: boolean;
   supported: boolean;
+  proxyId: string | null;
+  proxyName: string | null;
+  proxyProtocol: ProxyProtocol | null;
+  proxyEnabled: boolean | null;
   config: Record<string, unknown> | null;
   secretsSet: string[];
   configured: boolean;
@@ -34,6 +40,7 @@ export interface StoredChannelInternal {
   type: string;
   enabled: boolean;
   supported: boolean;
+  proxyId: string | null;
   config: Record<string, unknown> | null;
 }
 
@@ -45,6 +52,7 @@ export class ChannelsService {
     @Inject(APP_CONFIG) config: AppConfig,
     private readonly repo: ChannelsRepository,
     private readonly registry: ChannelRegistry,
+    private readonly proxies: ProxiesService,
     private readonly settings: SettingsService,
   ) {
     this.policy = new PrivateNetworkPolicy(config.allowedPrivateHosts, config.allowPrivateUrls);
@@ -66,9 +74,30 @@ export class ChannelsService {
     }
   }
 
+  private parseProxyId(raw: unknown, fallback: string | null): string | null {
+    if (raw === undefined) return fallback;
+    if (raw === null) return null;
+    if (typeof raw !== 'string') {
+      throw new ValidationError('代理 ID 无效');
+    }
+    const trimmed = raw.trim();
+    if (!trimmed) return null;
+    if (!this.proxies.getRow(trimmed)) {
+      throw new ValidationError('所选代理不存在，请刷新后重试');
+    }
+    return trimmed;
+  }
+
   toView(row: ChannelRow): ChannelView {
     const provider = this.registry.get(row.type);
     const rawConfig = this.parseRawConfig(row.config);
+    const proxyRow = row.proxy_id ? this.proxies.getRow(row.proxy_id) : null;
+    const proxyFields = {
+      proxyId: proxyRow ? proxyRow.id : null,
+      proxyName: proxyRow ? proxyRow.name : null,
+      proxyProtocol: proxyRow ? proxyRow.protocol : null,
+      proxyEnabled: proxyRow ? proxyRow.enabled === 1 : null,
+    };
     if (!provider) {
       return {
         id: row.id,
@@ -76,6 +105,7 @@ export class ChannelsService {
         type: row.type,
         enabled: row.enabled === 1,
         supported: false,
+        ...proxyFields,
         config: null,
         secretsSet: [],
         configured: false,
@@ -91,6 +121,7 @@ export class ChannelsService {
       type: row.type,
       enabled: row.enabled === 1,
       supported: true,
+      ...proxyFields,
       config: masked.config,
       secretsSet: masked.secretsSet,
       configured: masked.configured,
@@ -109,6 +140,7 @@ export class ChannelsService {
       type: row.type,
       enabled: row.enabled === 1,
       supported: this.registry.has(row.type),
+      proxyId: row.proxy_id,
       config: this.parseRawConfig(row.config),
     };
   }
@@ -152,6 +184,8 @@ export class ChannelsService {
       merged = provider.mergeConfig(rawConfig, null, enabled, this.policy);
     }
 
+    const proxyId = this.parseProxyId(body.proxyId, null);
+
     const id = crypto.randomUUID();
     const now = Date.now();
     this.repo.insert({
@@ -160,6 +194,7 @@ export class ChannelsService {
       type,
       enabled: enabled ? 1 : 0,
       config: merged ? JSON.stringify(merged) : null,
+      proxy_id: proxyId,
       created_at: now,
       updated_at: now,
     });
@@ -192,11 +227,13 @@ export class ChannelsService {
         name,
         enabled: 0,
         config: existing.config,
+        proxy_id: existing.proxy_id,
         updated_at: Date.now(),
       });
       return this.getById(id);
     }
 
+    const proxyId = this.parseProxyId(body.proxyId, existing.proxy_id);
     const existingConfig = this.parseRawConfig(existing.config);
     let nextConfig: Record<string, unknown> | null;
     if (body.config === undefined) {
@@ -217,6 +254,7 @@ export class ChannelsService {
       name,
       enabled: enabled ? 1 : 0,
       config: nextConfig ? JSON.stringify(nextConfig) : null,
+      proxy_id: proxyId,
       updated_at: Date.now(),
     });
     return this.getById(id);
@@ -256,6 +294,16 @@ export class ChannelsService {
       };
     }
 
+    const resolvedProxy = this.proxies.resolveForChannel(existing.proxy_id);
+    if (resolvedProxy.error) {
+      return {
+        ok: false,
+        httpStatus: null,
+        responseSummary: '',
+        error: resolvedProxy.error,
+      };
+    }
+
     const now = Date.now();
     const message: NotificationMessage = {
       eventId: crypto.randomUUID(),
@@ -267,7 +315,7 @@ export class ChannelsService {
       triggeredAt: now,
       isTest: true,
     };
-    const result = await provider.send(message, config);
+    const result = await runWithProxyContext(resolvedProxy.target, () => provider.send(message, config));
     return {
       ok: result.ok,
       httpStatus: result.httpStatus,
