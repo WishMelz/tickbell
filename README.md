@@ -1,4 +1,4 @@
-# TickBell（滴答铃）
+# TickBell
 
 轻量、可靠的多渠道定时提醒系统，支持 **Cloudflare Workers + D1 一键部署** 与 **Docker 单机自部署** 双运行形态。  
 基于 **Hono + SQLite/D1 + Vue 3 + Quasar 2** 构建，不设提醒条数上限，原生适配 PC 与移动端（H5）。
