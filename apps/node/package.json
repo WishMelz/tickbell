@@ -1,0 +1,33 @@
+{
+  "name": "tickbell-node",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TickBell 2.0 self-hosted Node.js / Docker runtime (Hono + SQLite WAL + Proxies + Auto-Backup)",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "build": "esbuild src/main.ts --bundle --platform=node --target=node22 --format=esm --banner:js=\"import { createRequire as __createRequire } from 'node:module'; const require = __createRequire(import.meta.url);\" --external:better-sqlite3 --external:@hono/node-server --external:cron --external:undici --outfile=dist/main.mjs",
+    "start": "node dist/main.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@tickbell/core": "workspace:*",
+    "cron": "^4.4.0",
+    "ipaddr.js": "^2.5.0",
+    "undici": "^8.13.1",
+    "zod": "^4.6.7"
+  },
+  "optionalDependencies": {
+    "better-sqlite3": "^12.11.1"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^9.6.0",
+    "@types/node": "^22.0.0",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.19.0",
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.0"
+  }
+}

@@ -11,7 +11,7 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <title>TickBell</title>
     <!-- THEME-BOOT BEGIN: 首屏前应用主题，避免深色模式白屏闪烁。内容改动后需要同步更新后端 CSP 中的 sha256 哈希 -->
-    <script>(function(){try{var t=localStorage.getItem('tickbell-theme')||localStorage.getItem('tips-theme');var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var c=d?'#0f1218':'#f4f6fa';var s=document.documentElement.style;s.backgroundColor=c;s.colorScheme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',c);}catch(e){}})();</script>
+    <script>(function(){try{var t=localStorage.getItem('tickbell-theme');var d=t==='dark'||(t!=='light'&&window.matchMedia('(prefers-color-scheme: dark)').matches);var c=d?'#0f1218':'#f4f6fa';var s=document.documentElement.style;s.backgroundColor=c;s.colorScheme=d?'dark':'light';var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute('content',c);}catch(e){}})();</script>
     <!-- THEME-BOOT END -->
   </head>
   <body>

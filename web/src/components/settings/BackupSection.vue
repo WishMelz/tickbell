@@ -15,15 +15,46 @@ import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { saveTextFile } from '@/utils/download';
 import {
-  decryptFullBackup,
-  inspectBackupFile,
+  backupFileName,
+  parsePlainBackupFile,
   serializePlainBackup,
 } from '@/utils/fullBackup';
 import { formatInstant } from '@/utils/time';
 
+const props = withDefaults(
+  defineProps<{
+    diskAutoBackup?: boolean;
+  }>(),
+  {
+    diskAutoBackup: true,
+  },
+);
+
 const router = useRouter();
 const auth = useAuthStore();
 const settings = useSettingsStore();
+
+// ---------- 手动导出下载（Node & Cloudflare 通用） ----------
+const exportAdminPassword = ref('');
+const exporting = ref(false);
+
+async function runManualExport(): Promise<void> {
+  if (!exportAdminPassword.value) {
+    notifyError('请输入管理密码以导出备份');
+    return;
+  }
+  exporting.value = true;
+  try {
+    const payload = await api.exportBackup(exportAdminPassword.value);
+    saveTextFile(serializePlainBackup(payload), backupFileName());
+    exportAdminPassword.value = '';
+    notifySuccess('已导出并下载明文 JSON 备份');
+  } catch (error) {
+    notifyError(error, '导出备份失败');
+  } finally {
+    exporting.value = false;
+  }
+}
 
 // ---------- 数据备份与自动备份（保存在 data/backups/） ----------
 const autoLoading = ref(false);
@@ -74,6 +105,7 @@ function applyAutoView(view: AutoBackupView, syncForm = true): void {
 }
 
 async function loadAutoBackup(syncForm = true): Promise<void> {
+  if (!props.diskAutoBackup) return;
   autoLoading.value = true;
   try {
     applyAutoView(await api.getAutoBackup(), syncForm);
@@ -85,8 +117,17 @@ async function loadAutoBackup(syncForm = true): Promise<void> {
 }
 
 onMounted(() => {
-  void loadAutoBackup(true);
+  if (props.diskAutoBackup) {
+    void loadAutoBackup(true);
+  }
 });
+
+watch(
+  () => props.diskAutoBackup,
+  (enabled) => {
+    if (enabled) void loadAutoBackup(true);
+  },
+);
 
 watch(
   () => settings.globalTimezone,
@@ -172,10 +213,7 @@ async function previewAutoFile(file: AutoBackupFileInfo): Promise<void> {
   busyFileName.value = file.name;
   previewing.value = true;
   selectedFile.value = null;
-  selectedFileText.value = '';
   previewSourceName.value = null;
-  isLegacyEncrypted.value = false;
-  restoreBackupPassword.value = '';
   parsedBackup.value = null;
   preview.value = null;
   confirmWord.value = '';
@@ -216,12 +254,9 @@ async function deleteAutoFile(file: AutoBackupFileInfo): Promise<void> {
   }
 }
 
-// ---------- 导入恢复（支持明文备份，同时兼容旧版 Tips 加密备份） ----------
+// ---------- 导入恢复（明文 JSON 全量备份） ----------
 const selectedFile = ref<File | null>(null);
-const selectedFileText = ref('');
 const previewSourceName = ref<string | null>(null);
-const isLegacyEncrypted = ref(false);
-const restoreBackupPassword = ref('');
 const parsedBackup = ref<unknown>(null);
 const preview = ref<BackupPreview | null>(null);
 const previewing = ref(false);
@@ -231,10 +266,7 @@ const restoring = ref(false);
 
 async function onFileSelected(file: File | null): Promise<void> {
   selectedFile.value = file;
-  selectedFileText.value = '';
   previewSourceName.value = null;
-  isLegacyEncrypted.value = false;
-  restoreBackupPassword.value = '';
   parsedBackup.value = null;
   preview.value = null;
   confirmWord.value = '';
@@ -243,41 +275,12 @@ async function onFileSelected(file: File | null): Promise<void> {
   previewing.value = true;
   try {
     const text = await file.text();
-    selectedFileText.value = text;
-    const inspected = inspectBackupFile(text);
-    if (inspected.kind === 'encrypted') {
-      isLegacyEncrypted.value = true;
-      return;
-    }
-    const summary = await api.previewBackup(inspected.data);
-    parsedBackup.value = inspected.data;
+    const data = parsePlainBackupFile(text);
+    const summary = await api.previewBackup(data);
+    parsedBackup.value = data;
     preview.value = summary;
   } catch (error) {
     notifyError(error, '解析或校验备份文件失败');
-  } finally {
-    previewing.value = false;
-  }
-}
-
-async function runDecryptPreview(): Promise<void> {
-  if (!selectedFileText.value) {
-    notifyError('请先选择备份文件');
-    return;
-  }
-  if (!restoreBackupPassword.value) {
-    notifyError('请输入旧版备份密码');
-    return;
-  }
-  previewing.value = true;
-  preview.value = null;
-  parsedBackup.value = null;
-  try {
-    const parsed = await decryptFullBackup(selectedFileText.value, restoreBackupPassword.value);
-    const summary = await api.previewBackup(parsed);
-    parsedBackup.value = parsed;
-    preview.value = summary;
-  } catch (error) {
-    notifyError(error, '解密或校验备份失败');
   } finally {
     previewing.value = false;
   }
@@ -314,16 +317,46 @@ async function runRestore(): Promise<void> {
       <div class="card-head">
         <q-icon :name="icons.backup" size="20px" color="primary" />
         <div class="col">
-          <h3 class="section-title">数据备份与自动备份</h3>
-          <div class="text-muted text-caption">
+          <h3 class="section-title">{{ props.diskAutoBackup ? '数据备份与自动备份' : '导出全量业务备份' }}</h3>
+          <div v-if="props.diskAutoBackup" class="text-muted text-caption">
             仅备份提醒事项、通知渠道配置与全局时区（明文 JSON，不含发送日志与登录密码），保存在
             <code>{{ autoView?.backupDir || '/data/backups' }}</code>，按全局时区（{{ autoView?.timezone || 'UTC' }}）执行。
           </div>
+          <div v-else class="text-muted text-caption">
+            导出提醒事项、通知渠道配置与全局时区（明文 JSON，可与 Docker 自部署版互通）。Cloudflare D1 同时自带 Time Travel 时间点恢复能力。
+          </div>
         </div>
-        <q-toggle v-model="autoForm.enabled" color="primary" :disable="autoLoading || autoSaving" />
+        <q-toggle v-if="props.diskAutoBackup" v-model="autoForm.enabled" color="primary" :disable="autoLoading || autoSaving" />
       </div>
 
-      <div class="sub-block q-mt-md">
+      <!-- Cloudflare 模式或通用手动导出下载 -->
+      <div v-if="!props.diskAutoBackup" class="form-stack q-mt-md">
+        <q-input
+          v-model="exportAdminPassword"
+          type="password"
+          outlined
+          dense
+          autocomplete="current-password"
+          label="管理密码"
+          placeholder="输入管理密码验证后下载 JSON 备份"
+          :disable="exporting"
+          @keydown.enter.prevent="runManualExport"
+        />
+        <div>
+          <q-btn
+            unelevated
+            no-caps
+            color="primary"
+            class="touch-44"
+            :icon="icons.download"
+            label="导出并下载备份（JSON）"
+            :loading="exporting"
+            @click="runManualExport"
+          />
+        </div>
+      </div>
+
+      <div v-if="props.diskAutoBackup" class="sub-block q-mt-md">
         <div class="auto-grid">
           <q-input
             v-model="autoForm.time"
@@ -472,7 +505,7 @@ async function runRestore(): Promise<void> {
         <q-icon :name="icons.upload" size="20px" color="warning" />
         <div>
           <h3 class="section-title">导入并覆盖恢复</h3>
-          <div class="text-muted text-caption">选择明文备份文件或从左侧自动备份一键载入即可预览恢复（兼容旧版 Tips 加密备份）。恢复后所有提醒默认暂停。</div>
+          <div class="text-muted text-caption">选择明文 JSON 备份文件或从左侧自动备份一键载入即可预览恢复。恢复后所有提醒默认暂停。</div>
         </div>
       </div>
 
@@ -488,34 +521,6 @@ async function runRestore(): Promise<void> {
           @update:model-value="onFileSelected"
         />
 
-        <template v-if="isLegacyEncrypted && !preview">
-          <q-banner rounded class="warn-banner">
-            检测到旧版 Tips 加密备份文件，请输入当时的备份密码以解密预览。
-          </q-banner>
-          <q-input
-            v-model="restoreBackupPassword"
-            type="password"
-            outlined
-            dense
-            autocomplete="off"
-            label="旧版备份密码"
-            :disable="previewing || restoring"
-            @keydown.enter.prevent="runDecryptPreview"
-          />
-          <div>
-            <q-btn
-              outline
-              no-caps
-              color="primary"
-              class="touch-44"
-              label="解密并预览内容"
-              :loading="previewing"
-              :disable="restoring"
-              @click="runDecryptPreview"
-            />
-          </div>
-        </template>
-
         <div v-if="preview" class="preview-box">
           <div v-if="previewSourceName" class="preview-source text-caption text-muted q-mb-sm">
             已载入目录备份：<code>{{ previewSourceName }}</code>
@@ -529,22 +534,8 @@ async function runRestore(): Promise<void> {
             <div v-if="preview.deliveries > 0"><span class="text-muted">发送日志</span><strong>{{ preview.deliveries }}</strong></div>
           </div>
 
-          <q-banner
-            v-if="
-              Array.isArray(preview.unsupportedChannels)
-                ? preview.unsupportedChannels.length > 0
-                : preview.unsupportedChannels > 0
-            "
-            rounded
-            class="q-mt-sm warn-banner"
-          >
-            包含
-            {{
-              Array.isArray(preview.unsupportedChannels)
-                ? preview.unsupportedChannels.length
-                : preview.unsupportedChannels
-            }}
-            个当前暂不支持的渠道类型，将保留原配置并强制停用。
+          <q-banner v-if="preview.unsupportedChannels > 0" rounded class="q-mt-sm warn-banner">
+            包含 {{ preview.unsupportedChannels }} 个当前暂不支持的渠道类型，将保留原配置并强制停用。
           </q-banner>
 
           <div v-if="preview.remindersWithoutUsableChannel.length" class="q-mt-sm warn-list">

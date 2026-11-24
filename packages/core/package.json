@@ -1,0 +1,27 @@
+{
+  "name": "@tickbell/core",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "description": "TickBell 2.0 platform-agnostic core (Web Standards + Hono + async DbAdapter)",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@js-temporal/polyfill": "^0.5.1",
+    "hono": "^4.9.8",
+    "htmlparser2": "^12.0.0",
+    "ipaddr.js": "^2.5.0",
+    "xss": "^1.0.17",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.0",
+    "vitest": "^4.1.0"
+  }
+}

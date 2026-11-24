@@ -4,10 +4,19 @@
 
 // ---------- Auth ----------
 export type ConfigurationIssue = 'missing' | 'too_short' | null;
+export type RuntimeKind = 'cloudflare' | 'node';
+
+export interface RuntimeCapabilities {
+  proxies: boolean;
+  diskAutoBackup: boolean;
+  sqliteVacuumBackup: boolean;
+  minScheduleIntervalSec: number;
+  allowPrivateUrls: boolean;
+}
 
 export interface AuthStatus {
+  runtime?: RuntimeKind;
   initialized: boolean;
-  configured: boolean;
   authenticated: boolean;
   configurationIssue: ConfigurationIssue;
 }
@@ -195,6 +204,21 @@ export interface ReminderFilters {
   category?: string;
   tag?: string;
   status?: ReminderStatusFilter | '';
+  sort?: 'asc' | 'desc';
+}
+
+export interface ReminderPageFilters extends ReminderFilters {
+  page: number;
+  pageSize: number;
+}
+
+export interface ReminderPage {
+  items: ReminderView[];
+  total: number;
+  page: number;
+  pageSize: number;
+  categories: string[];
+  tags: string[];
 }
 
 export type ReminderBatchAction = 'enable' | 'disable' | 'delete' | 'channels';
@@ -258,15 +282,19 @@ export interface DeliveryPage {
 // ---------- System ----------
 export interface HealthStatus {
   status: 'ok' | 'degraded';
+  runtime?: RuntimeKind;
   db: string;
   scheduler: { enabled: boolean; lastTickAt: string | null; healthy: boolean };
 }
 
 export interface SystemStatus {
   version: string;
-  startedAt: string;
-  uptimeSeconds: number;
+  runtime?: RuntimeKind;
+  runtimeLabel?: string;
+  startedAt: string | null;
+  uptimeSeconds: number | null;
   nodeVersion: string;
+  capabilities?: RuntimeCapabilities;
   scheduler: {
     enabled: boolean;
     paused: boolean;
@@ -285,13 +313,12 @@ export interface BackupPreview {
   activeReminders: number;
   deletedReminders: number;
   channels: number;
-  /** API.md 未注明类型：按数量处理；如果后端返回渠道列表，界面也能展示 */
-  unsupportedChannels: number | Array<{ id?: string; name: string; type: string }>;
+  unsupportedChannels: number;
   deliveries: number;
   pendingDeliveries: number;
   globalTimezone: string;
   exportedAt: string;
-  sourceVersion: 1 | 2;
+  sourceVersion: 2;
   remindersWithoutUsableChannel: { id: string; title: string }[];
 }
 

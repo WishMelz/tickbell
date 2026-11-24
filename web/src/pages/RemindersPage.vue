@@ -17,6 +17,7 @@ const { isMobile, isTablet } = useResponsive();
 const loading = ref(true);
 const initialized = ref(false);
 const reminders = ref<ReminderView[]>([]);
+const totalReminders = ref(0);
 const channels = ref<ChannelView[]>([]);
 
 // 筛选与排序
@@ -29,7 +30,9 @@ const sortAsc = ref(true);
 // 列表选中（PC QTable 和 移动端多选模式共用 selectedIds）
 const selectedIds = ref<string[]>([]);
 const mobileSelectMode = ref(false);
-const mobileVisibleCount = ref(20);
+const mobilePage = ref(1);
+const MOBILE_PAGE_SIZE = 20;
+const loadingMoreMobile = ref(false);
 
 // 编辑器 & 批量替换渠道弹窗
 const editorOpen = ref(false);
@@ -71,23 +74,17 @@ const allTags = computed(() => {
   return [...set].sort((a, b) => a.localeCompare(b, 'zh-CN'));
 });
 
-const sortedReminders = computed(() => {
-  const list = [...reminders.value];
-  list.sort((a, b) => {
-    const diff = Date.parse(a.nextRunAt) - Date.parse(b.nextRunAt);
-    return sortAsc.value ? diff : -diff;
-  });
-  return list;
-});
+const sortedReminders = computed(() => reminders.value);
+const mobileReminders = computed(() => reminders.value);
+const hasMoreMobile = computed(() => reminders.value.length < totalReminders.value);
 
-const mobileReminders = computed(() => sortedReminders.value.slice(0, mobileVisibleCount.value));
-const hasMoreMobile = computed(() => mobileVisibleCount.value < sortedReminders.value.length);
-
-// PC QTable 选中行对象双向同步
+// PC QTable 选中行对象双向同步（保留跨页选择）
 const selectedRows = computed<ReminderView[]>({
   get: () => sortedReminders.value.filter((r) => selectedIds.value.includes(r.id)),
   set: (rows) => {
-    selectedIds.value = rows.map((r) => r.id);
+    const visibleIds = new Set(sortedReminders.value.map((r) => r.id));
+    const keptOtherPages = selectedIds.value.filter((id) => !visibleIds.has(id));
+    selectedIds.value = [...keptOtherPages, ...rows.map((r) => r.id)];
   },
 });
 
@@ -100,50 +97,86 @@ const columns: QTableColumn<ReminderView>[] = [
   { name: 'actions', label: '操作', field: 'id', align: 'right' },
 ];
 
-const pagination = ref({ page: 1, rowsPerPage: 20 });
+const pagination = ref({ page: 1, rowsPerPage: 20, rowsNumber: 0 });
 
 let loadAbort: AbortController | null = null;
 let searchTimer: ReturnType<typeof setTimeout> | null = null;
 
-async function loadData(silent = false): Promise<void> {
+async function loadData(silent = false, appendMobile = false): Promise<void> {
   loadAbort?.abort();
-  loadAbort = new AbortController();
-  if (!silent) loading.value = true;
+  const controller = new AbortController();
+  loadAbort = controller;
+  if (appendMobile) {
+    loadingMoreMobile.value = true;
+  } else if (!silent) {
+    loading.value = true;
+  }
   try {
-    const [remList, chList] = await Promise.all([
-      api.listReminders(
+    const page = isMobile.value ? (appendMobile ? mobilePage.value : 1) : pagination.value.page;
+    const pageSize = isMobile.value ? MOBILE_PAGE_SIZE : pagination.value.rowsPerPage;
+
+    const [pageRes, chList] = await Promise.all([
+      api.listRemindersPage(
         {
           search: (search.value ?? '').trim() || undefined,
           status: statusFilter.value || undefined,
           category: categoryFilter.value || undefined,
           tag: tagFilter.value || undefined,
+          sort: sortAsc.value ? 'asc' : 'desc',
+          page,
+          pageSize,
         },
-        loadAbort.signal,
+        controller.signal,
       ),
-      api.listChannels(),
+      appendMobile ? Promise.resolve(channels.value) : api.listChannels(),
     ]);
-    reminders.value = remList;
-    channels.value = chList;
-    initialized.value = true;
-    // 无筛选条件时同步全量分类与标签，确保筛选时下拉选项完整
-    if (!(search.value ?? '').trim() && !statusFilter.value && !categoryFilter.value && !tagFilter.value) {
-      knownCategories.value = [...new Set(remList.map((r) => r.category).filter(Boolean))];
-      knownTags.value = [...new Set(remList.flatMap((r) => r.tags))];
+    if (loadAbort !== controller) return;
+    if (appendMobile) {
+      const existingIds = new Set(reminders.value.map((r) => r.id));
+      reminders.value = [...reminders.value, ...pageRes.items.filter((r) => !existingIds.has(r.id))];
+    } else {
+      reminders.value = pageRes.items;
+      mobilePage.value = 1;
     }
-    // 保留仍在当前列表中的选中项
-    const valid = new Set(remList.map((r) => r.id));
-    selectedIds.value = selectedIds.value.filter((id) => valid.has(id));
+    totalReminders.value = pageRes.total;
+    pagination.value = {
+      ...pagination.value,
+      page: pageRes.page,
+      rowsPerPage: pageRes.pageSize,
+      rowsNumber: pageRes.total,
+    };
+    channels.value = chList;
+    knownCategories.value = pageRes.categories;
+    knownTags.value = pageRes.tags;
+    initialized.value = true;
   } catch (error) {
+    if (loadAbort !== controller) return;
     notifyError(error, '加载提醒列表失败');
   } finally {
-    if (!silent) loading.value = false;
+    if (loadAbort === controller) {
+      loadingMoreMobile.value = false;
+      if (!silent && !appendMobile) loading.value = false;
+    }
   }
 }
 
-watch([statusFilter, categoryFilter, tagFilter], () => {
+function onTableRequest(props: { pagination: { page: number; rowsPerPage: number } }): void {
+  pagination.value.page = props.pagination.page;
+  pagination.value.rowsPerPage = props.pagination.rowsPerPage || 20;
+  void loadData();
+}
+
+function loadMoreMobile(): void {
+  if (loadingMoreMobile.value || !hasMoreMobile.value) return;
+  mobilePage.value += 1;
+  void loadData(false, true);
+}
+
+watch([statusFilter, categoryFilter, tagFilter, sortAsc], () => {
   selectedIds.value = [];
   exitMobileSelect();
-  mobileVisibleCount.value = 20;
+  pagination.value.page = 1;
+  mobilePage.value = 1;
   void loadData();
 });
 
@@ -152,7 +185,8 @@ watch(search, () => {
   searchTimer = setTimeout(() => {
     selectedIds.value = [];
     exitMobileSelect();
-    mobileVisibleCount.value = 20;
+    pagination.value.page = 1;
+    mobilePage.value = 1;
     void loadData();
   }, 260);
 });
@@ -248,7 +282,13 @@ async function removeReminder(item: ReminderView, resetSlide?: () => void): Prom
   try {
     await api.deleteReminder(item.id);
     reminders.value = reminders.value.filter((r) => r.id !== item.id);
+    totalReminders.value = Math.max(0, totalReminders.value - 1);
+    pagination.value.rowsNumber = totalReminders.value;
     selectedIds.value = selectedIds.value.filter((id) => id !== item.id);
+    if (!reminders.value.length && pagination.value.page > 1) {
+      pagination.value.page -= 1;
+      void loadData(true);
+    }
     notifySuccess('提醒已删除');
   } catch (error) {
     notifyError(error, '删除失败');
@@ -344,7 +384,7 @@ function tooltipContent(text: string): string {
     <div v-if="!isMobile" class="app-page-head">
       <div>
         <h1>提醒管理</h1>
-        <div class="sub">{{ initialized ? `共 ${reminders.length} 条提醒` : '加载中…' }}</div>
+        <div class="sub">{{ initialized ? `共 ${totalReminders} 条提醒` : '加载中…' }}</div>
       </div>
       <q-space />
       <q-btn flat round :icon="icons.refresh" aria-label="刷新" :loading="loading" @click="loadData()">
@@ -452,9 +492,10 @@ function tooltipContent(text: string): string {
       row-key="id"
       selection="multiple"
       :loading="loading"
-      :rows-per-page-options="[10, 20, 50]"
+      :rows-per-page-options="[10, 20, 50, 100]"
       flat
       class="app-table"
+      @request="onTableRequest"
     >
       <template #body-cell-title="props">
         <q-td :props="props" class="title-cell">
@@ -675,7 +716,7 @@ function tooltipContent(text: string): string {
       </div>
 
       <div v-if="hasMoreMobile" class="q-mt-md flex flex-center">
-        <q-btn flat no-caps color="primary" class="touch-44" label="加载更多" @click="mobileVisibleCount += 20" />
+        <q-btn flat no-caps color="primary" class="touch-44" label="加载更多" :loading="loadingMoreMobile" @click="loadMoreMobile" />
       </div>
     </q-pull-to-refresh>
 

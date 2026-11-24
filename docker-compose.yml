@@ -25,6 +25,7 @@ services:
       BACKUP_DIR: "/data/backups"
       # 可选配置（默认已适配常见场景，按需取消注释修改）：
       # COOKIE_SECURE: "auto"          # auto 自动识别 HTTP/HTTPS；纯 HTTPS 反代可改 true
+      # TRUST_PROXY: "true"            # 位于 Nginx/Caddy/1Panel 反代后保持 true；公网直连建议改 false
       # ALLOW_PRIVATE_URLS: "true"     # 允许推送到内网 / Docker 自建通知服务（如自建 Bark）
       # MISSED_GRACE_MINUTES: "60"     # 服务重启错过提醒的补发宽限窗口（分钟）
       # DELIVERY_RETENTION_DAYS: "90"  # 投递日志保留天数

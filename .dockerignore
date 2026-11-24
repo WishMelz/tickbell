@@ -1,20 +1,25 @@
 # 排除版本控制、本地依赖、构建产物与数据文件，防止覆盖容器内 Linux 原生模块或泄露本地数据库
 .git
 .gitignore
+.wrangler
+.dev.vars
 **/.DS_Store
 **/Thumbs.db
 **/node_modules
 **/dist
 **/*.log
+**/*.db
+**/*.db-wal
+**/*.db-shm
+coverage
 
 # 本地开发与部署数据
-server/data
-server/public
+apps/node/data
+apps/node/public
 deploy/data
 deploy/caddy_data
 deploy/caddy_config
 deploy/.env
-server/.env
 web/.env
 web/.env.local
 
@@ -22,5 +27,6 @@ web/.env.local
 docs
 **/*.md
 LICENSE
-server/test
 web/tests
+apps/*/test
+packages/*/test
