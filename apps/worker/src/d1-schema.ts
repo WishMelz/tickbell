@@ -159,6 +159,21 @@ export async function ensureD1Schema(db: D1Database | undefined): Promise<void> 
         }
       }
     }
+
+    // Incremental migration 0002: channels.deleted_at for soft-deleting log-referenced channels.
+    const cols = await db.prepare('PRAGMA table_info(channels)').all<{ name: string }>();
+    const hasDeletedAt = (cols.results ?? []).some((col) => col.name === 'deleted_at');
+    if (!hasDeletedAt) {
+      try {
+        await db.prepare('ALTER TABLE channels ADD COLUMN deleted_at INTEGER').run();
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err ?? '');
+        if (!/duplicate column name/i.test(msg)) {
+          throw err;
+        }
+      }
+    }
+
     schemaReady = true;
   })().finally(() => {
     inflight = null;

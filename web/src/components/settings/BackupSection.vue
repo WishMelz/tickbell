@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue';
-import { useRouter } from 'vue-router';
 import {
   api,
   type AutoBackupFileInfo,
@@ -11,7 +10,6 @@ import {
 import { confirmDialog } from '@/composables/dialogs';
 import { notifyError, notifySuccess } from '@/composables/useResponsive';
 import { icons } from '@/icons';
-import { useAuthStore } from '@/stores/auth';
 import { useSettingsStore } from '@/stores/settings';
 import { saveTextFile } from '@/utils/download';
 import {
@@ -30,8 +28,10 @@ const props = withDefaults(
   },
 );
 
-const router = useRouter();
-const auth = useAuthStore();
+const emit = defineEmits<{
+  restored: [];
+}>();
+
 const settings = useSettingsStore();
 
 // ---------- 手动导出下载（Node & Cloudflare 通用） ----------
@@ -216,7 +216,7 @@ async function previewAutoFile(file: AutoBackupFileInfo): Promise<void> {
   previewSourceName.value = null;
   parsedBackup.value = null;
   preview.value = null;
-  confirmWord.value = '';
+  restoreAdminPassword.value = '';
   try {
     const { backup } = await api.readAutoBackupFile(file.name);
     const summary = await api.previewBackup(backup);
@@ -261,7 +261,6 @@ const parsedBackup = ref<unknown>(null);
 const preview = ref<BackupPreview | null>(null);
 const previewing = ref(false);
 const restoreAdminPassword = ref('');
-const confirmWord = ref('');
 const restoring = ref(false);
 
 async function onFileSelected(file: File | null): Promise<void> {
@@ -269,7 +268,7 @@ async function onFileSelected(file: File | null): Promise<void> {
   previewSourceName.value = null;
   parsedBackup.value = null;
   preview.value = null;
-  confirmWord.value = '';
+  restoreAdminPassword.value = '';
   if (!file) return;
 
   previewing.value = true;
@@ -292,16 +291,23 @@ async function runRestore(): Promise<void> {
     notifyError('请输入管理密码');
     return;
   }
-  if (confirmWord.value.trim() !== 'RESTORE') {
-    notifyError('请输入 RESTORE 确认覆盖恢复');
-    return;
-  }
+  const ok = await confirmDialog({
+    title: '确认覆盖恢复',
+    message: `即将使用该备份覆盖当前全部提醒（${preview.value.reminders} 条）、通知渠道（${preview.value.channels} 个）与全局时区。恢复后所有提醒默认暂停，确定继续吗？`,
+    okLabel: '确认覆盖',
+    danger: true,
+  });
+  if (!ok) return;
   restoring.value = true;
   try {
-    await api.restoreBackup(parsedBackup.value, restoreAdminPassword.value, 'RESTORE');
-    notifySuccess('恢复完成，请重新登录');
-    auth.clear();
-    await router.replace({ name: 'login' });
+    await api.restoreBackup(parsedBackup.value, restoreAdminPassword.value);
+    selectedFile.value = null;
+    previewSourceName.value = null;
+    parsedBackup.value = null;
+    preview.value = null;
+    restoreAdminPassword.value = '';
+    emit('restored');
+    notifySuccess('覆盖恢复完成，所有提醒已默认暂停');
   } catch (error) {
     notifyError(error, '覆盖恢复失败');
   } finally {
@@ -561,16 +567,9 @@ async function runRestore(): Promise<void> {
               outlined
               dense
               autocomplete="current-password"
-              label="当前管理密码 *"
+              label="输入当前管理密码以确认覆盖恢复 *"
               :disable="restoring"
-            />
-            <q-input
-              v-model="confirmWord"
-              outlined
-              dense
-              label="输入 RESTORE 确认覆盖当前全部业务数据 *"
-              placeholder="RESTORE"
-              :disable="restoring"
+              @keydown.enter.prevent="runRestore"
             />
             <q-btn
               unelevated
@@ -579,7 +578,7 @@ async function runRestore(): Promise<void> {
               class="touch-44"
               label="确认覆盖恢复"
               :loading="restoring"
-              :disable="confirmWord.trim() !== 'RESTORE'"
+              :disable="!restoreAdminPassword"
               @click="runRestore"
             />
           </div>

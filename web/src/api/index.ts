@@ -121,8 +121,8 @@ export const api = {
   // Backup（明文 JSON；加解密在浏览器端完成，见 utils/fullBackup.ts）
   exportBackup: (password: string) => request<unknown>('/backup/export', { method: 'POST', body: { password } }),
   previewBackup: (backup: unknown) => request<BackupPreview>('/backup/preview', { method: 'POST', body: { backup } }),
-  restoreBackup: (backup: unknown, password: string, confirmation: string) =>
-    request<{ restored: boolean }>('/backup/restore', { method: 'POST', body: { backup, password, confirmation } }),
+  restoreBackup: (backup: unknown, password: string) =>
+    request<{ restored: boolean }>('/backup/restore', { method: 'POST', body: { backup, password } }),
   getAutoBackup: () => request<AutoBackupView>('/backup/auto'),
   updateAutoBackup: (config: AutoBackupConfig) =>
     request<AutoBackupView>('/backup/auto', { method: 'PUT', body: config }),

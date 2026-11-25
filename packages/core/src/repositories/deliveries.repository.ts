@@ -24,6 +24,7 @@ export interface DeliveryJoinedRow extends DeliveryRow {
   reminder_title: string;
   channel_name: string;
   channel_type: string;
+  channel_deleted_at: number | null;
 }
 
 export interface DeliveryListQuery {
@@ -63,7 +64,7 @@ export class DeliveriesRepository {
         params: bindings,
       },
       {
-        sql: `SELECT d.*, r.title AS reminder_title, c.name AS channel_name, c.type AS channel_type
+        sql: `SELECT d.*, r.title AS reminder_title, c.name AS channel_name, c.type AS channel_type, c.deleted_at AS channel_deleted_at
               FROM deliveries d
               JOIN reminders r ON r.id = d.reminder_id
               JOIN channels c ON c.id = d.channel_id
@@ -82,7 +83,7 @@ export class DeliveriesRepository {
 
   async findJoinedById(id: string): Promise<DeliveryJoinedRow | null> {
     return this.db.first<DeliveryJoinedRow>({
-      sql: `SELECT d.*, r.title AS reminder_title, c.name AS channel_name, c.type AS channel_type
+      sql: `SELECT d.*, r.title AS reminder_title, c.name AS channel_name, c.type AS channel_type, c.deleted_at AS channel_deleted_at
             FROM deliveries d
             JOIN reminders r ON r.id = d.reminder_id
             JOIN channels c ON c.id = d.channel_id

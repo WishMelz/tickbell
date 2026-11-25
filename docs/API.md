@@ -262,7 +262,7 @@
   remindersWithoutUsableChannel: { id: string; title: string }[] }
 ```
 ### `POST /api/backup/restore` — 限流同登录
-请求体 `{ "backup": {...}, "password": "...", "confirmation": "RESTORE" }` → `{ "restored": true }`。
+请求体 `{ "backup": {...}, "password": "..." }` → `{ "restored": true }`（保留当前登录会话，无需重新登录）。
 规则：
 - 恢复期间暂停调度器，所有写入在一个事务里完成，失败整体回滚。
 - 恢复后所有提醒都是**暂停**状态；`pending` / `retrying` 的投递改为 `failed`，并注明「恢复时状态未知」。

@@ -9,7 +9,6 @@ import {
 } from '../common/reminder-content';
 import { calculateNextFutureRun } from '../common/repeat';
 import { epochToIso, isValidTimezone } from '../common/time';
-import { randomUuid } from '../crypto/index';
 import { buildMultiRowInsertStatements, utf8ByteLength } from '../db/chunking';
 import type { ChannelRegistry } from '../notifications/channel-registry';
 import type { PrivateNetworkPolicy } from '../notifications/http/url-policy';
@@ -418,12 +417,13 @@ export class BackupService {
       { sql: 'SELECT key, value, updated_at FROM settings' },
       { sql: 'SELECT id, name, protocol, host, port, username, password, enabled, created_at, updated_at FROM proxies' },
       { sql: 'SELECT * FROM reminders WHERE deleted_at IS NULL' },
-      { sql: 'SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels' },
+      { sql: 'SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels WHERE deleted_at IS NULL' },
       {
         sql: `SELECT rc.reminder_id, rc.channel_id
               FROM reminder_channels rc
               INNER JOIN reminders r ON r.id = rc.reminder_id
-              WHERE r.deleted_at IS NULL`,
+              INNER JOIN channels c ON c.id = rc.channel_id
+              WHERE r.deleted_at IS NULL AND c.deleted_at IS NULL`,
       },
     ]);
 
@@ -460,6 +460,7 @@ export class BackupService {
       const preserved = await this.settingsRepo.getMany([
         SETTING_AUTH_PASSWORD_HASH,
         SETTING_AUTH_SESSION_SECRET,
+        SETTING_SESSION_GENERATION,
         SETTING_AUTO_BACKUP_CONFIG,
         SETTING_AUTO_BACKUP_STATE,
         SETTING_CRON_HEARTBEAT,
@@ -475,16 +476,18 @@ export class BackupService {
         { sql: 'DELETE FROM settings' },
       ];
 
-      // Settings (user settings + preserved internal settings + rotated session generation)
+      // Settings (user settings + preserved internal auth/session/backup state)
       const settingRows: Array<[string, string, number]> = [];
       for (const s of backup.settings) {
         if (INTERNAL_SETTING_KEYS.has(s.key)) continue;
         settingRows.push([s.key, s.value, s.updated_at]);
       }
       for (const [key, val] of preserved.entries()) {
-        if (val) settingRows.push([key, val, now]);
+        if (val || key === SETTING_SESSION_GENERATION) settingRows.push([key, val, now]);
       }
-      settingRows.push([SETTING_SESSION_GENERATION, randomUuid(), now]);
+      if (!preserved.has(SETTING_SESSION_GENERATION)) {
+        settingRows.push([SETTING_SESSION_GENERATION, '', now]);
+      }
 
       stmts.push(
         ...buildMultiRowInsertStatements(
