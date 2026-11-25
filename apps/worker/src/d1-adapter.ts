@@ -2,9 +2,9 @@ import type { D1Database } from '@cloudflare/workers-types';
 import type { DbAdapter, DbRunResult, SqlStatement } from '@tickbell/core';
 import { ensureD1Schema, resetD1SchemaCache } from './d1-schema';
 
-function isMissingTableError(error: unknown): boolean {
+function isSchemaMismatchError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? '');
-  return /no such table/i.test(message);
+  return /no such (table|column)/i.test(message);
 }
 
 /**
@@ -27,7 +27,7 @@ export class D1DbAdapter implements DbAdapter {
     try {
       return await operation();
     } catch (error) {
-      if (!isMissingTableError(error)) {
+      if (!isSchemaMismatchError(error)) {
         throw error;
       }
       resetD1SchemaCache();

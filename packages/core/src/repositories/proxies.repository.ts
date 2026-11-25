@@ -37,7 +37,7 @@ export class ProxiesRepository {
     const rows = await this.db.all<{ proxy_id: string; cnt: number }>({
       sql: `SELECT proxy_id, COUNT(*) AS cnt
             FROM channels
-            WHERE proxy_id IS NOT NULL
+            WHERE proxy_id IS NOT NULL AND deleted_at IS NULL
             GROUP BY proxy_id`,
     });
     const map = new Map<string, number>();
@@ -49,7 +49,7 @@ export class ProxiesRepository {
 
   async countChannelsForProxy(id: string): Promise<number> {
     const row = await this.db.first<{ cnt: number }>({
-      sql: 'SELECT COUNT(*) AS cnt FROM channels WHERE proxy_id = ?',
+      sql: 'SELECT COUNT(*) AS cnt FROM channels WHERE proxy_id = ? AND deleted_at IS NULL',
       params: [id],
     });
     return Number(row?.cnt ?? 0);

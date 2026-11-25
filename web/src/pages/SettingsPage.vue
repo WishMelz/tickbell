@@ -273,7 +273,12 @@ async function handleLogout(): Promise<void> {
       <ProxySection v-if="sysStatus && supportsProxies" ref="proxySectionRef" />
 
       <!-- 备份与恢复（等能力探测完成后再挂载，避免 CF 模式下误请求本地自动备份接口） -->
-      <BackupSection v-if="sysStatus" ref="backupSectionRef" :disk-auto-backup="supportsDiskAutoBackup" />
+      <BackupSection
+        v-if="sysStatus"
+        ref="backupSectionRef"
+        :disk-auto-backup="supportsDiskAutoBackup"
+        @restored="loadAll(true)"
+      />
 
       <!-- 移动端退出登录按钮 -->
       <div v-if="isMobile" class="q-pt-xs">

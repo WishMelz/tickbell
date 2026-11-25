@@ -199,7 +199,10 @@ async function onPullRefresh(done: () => void): Promise<void> {
 
         <template #body-cell-channel="props">
           <q-td :props="props">
-            <div>{{ props.row.channelName }}</div>
+            <div class="row items-center no-wrap q-gutter-xs">
+              <span>{{ props.row.channelName }}</span>
+              <span v-if="props.row.channelDeleted" class="text-caption text-faint">（已删除）</span>
+            </div>
             <div class="text-caption text-faint">{{ props.row.channelType }}</div>
           </q-td>
         </template>
@@ -233,7 +236,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
         <template #body-cell-actions="props">
           <q-td :props="props" class="actions-cell">
             <q-btn
-              v-if="props.row.status === 'failed'"
+              v-if="props.row.status === 'failed' && !props.row.channelDeleted"
               flat
               dense
               no-caps
@@ -282,7 +285,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
             <span :class="chipClass(DELIVERY_STATUS[item.status].tone)">{{ DELIVERY_STATUS[item.status].label }}</span>
           </div>
           <div class="d-meta text-muted">
-            <span>{{ item.channelName }}（{{ item.channelType }}）</span>
+            <span>{{ item.channelName }}{{ item.channelDeleted ? '（已删除）' : '' }}（{{ item.channelType }}）</span>
             <span>第 {{ item.attempts }} 次</span>
           </div>
           <div class="d-meta text-faint">
@@ -290,7 +293,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
             <span v-if="item.status === 'retrying' && item.nextRetryAt">下次重试：{{ formatInstant(item.nextRetryAt) }}</span>
           </div>
           <div v-if="item.error" class="d-err text-negative">{{ item.error }}</div>
-          <div v-if="item.status === 'failed'" class="q-pt-xs" @click.stop>
+          <div v-if="item.status === 'failed' && !item.channelDeleted" class="q-pt-xs" @click.stop>
             <q-btn
               outline
               dense
@@ -321,7 +324,10 @@ async function onPullRefresh(done: () => void): Promise<void> {
         <q-separator />
         <q-card-section class="detail-body">
           <div class="kv"><span>提醒</span><strong>{{ detailItem.reminderTitle }}</strong></div>
-          <div class="kv"><span>渠道</span><strong>{{ detailItem.channelName }}（{{ detailItem.channelType }}）</strong></div>
+          <div class="kv">
+            <span>渠道</span>
+            <strong>{{ detailItem.channelName }}{{ detailItem.channelDeleted ? '（已删除）' : '' }}（{{ detailItem.channelType }}）</strong>
+          </div>
           <div class="kv">
             <span>状态</span>
             <span :class="chipClass(DELIVERY_STATUS[detailItem.status].tone)">{{ DELIVERY_STATUS[detailItem.status].label }}</span>
@@ -341,7 +347,7 @@ async function onPullRefresh(done: () => void): Promise<void> {
             <pre class="code-box">{{ detailItem.responseSummary }}</pre>
           </div>
         </q-card-section>
-        <q-card-actions v-if="detailItem.status === 'failed'" align="right">
+        <q-card-actions v-if="detailItem.status === 'failed' && !detailItem.channelDeleted" align="right">
           <q-btn
             unelevated
             no-caps

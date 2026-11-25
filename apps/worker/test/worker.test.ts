@@ -10,6 +10,10 @@ import type { WorkerEnv } from '../src/env';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const D1_INIT_SQL = fs.readFileSync(path.resolve(__dirname, '../../../migrations/d1/0001_init.sql'), 'utf8');
+const D1_MIGRATION_0002_SQL = fs.readFileSync(
+  path.resolve(__dirname, '../../../migrations/d1/0002_channel_soft_delete.sql'),
+  'utf8',
+);
 
 function toSqlParams(params: unknown[]): SQLInputValue[] {
   return params as SQLInputValue[];
@@ -29,6 +33,7 @@ function createStrictMockD1(options: { preInitSchema?: boolean } = {}) {
   sqlite.exec('PRAGMA foreign_keys = ON');
   if (options.preInitSchema !== false) {
     sqlite.exec(D1_INIT_SQL);
+    sqlite.exec(D1_MIGRATION_0002_SQL);
   }
 
   let queryCount = 0;
@@ -261,26 +266,17 @@ describe('Cloudflare Worker + strict D1 100-param integration', () => {
       body: JSON.stringify({
         backup: snapshot,
         password: 'cf-admin-password',
-        confirmation: 'RESTORE',
       }),
     });
     expect(restoreRes.status).toBe(200);
     expect(mockD1.getQueryCount()).toBeLessThanOrEqual(10);
 
-    // Re-login after restore (session generation rotated)
-    const loginRes = await req('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
-      body: JSON.stringify({ password: 'cf-admin-password' }),
-    });
-    expect(loginRes.status).toBe(200);
-    const newCookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
-
+    // Existing session MUST remain valid after restore (no forced re-login)
     // 5. Budgeted Cron Tick test: enable 25 reminders and make them due at `now`
     const first25 = createdIds.slice(0, 25);
     const batchEnable = await req('/api/reminders/batch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: newCookie },
+      headers: authedHeaders,
       body: JSON.stringify({ ids: first25, action: 'enable' }),
     });
     expect(batchEnable.status).toBe(200);
@@ -504,6 +500,116 @@ describe('Cloudflare Worker + strict D1 100-param integration', () => {
       expect(brokenRes.status).toBe(500);
       const brokenBody = (await brokenRes.json()) as { error: string };
       expect(brokenBody.error).toContain('D1');
+    } finally {
+      resetD1SchemaCache();
+      mockD1.sqlite.close();
+    }
+  });
+
+  it('allows soft-deleting channels referenced only by delivery logs while preserving log history and auto-upgrades 0001-only D1 DBs', async () => {
+    resetD1SchemaCache();
+    // Start with a legacy 0001-only DB (no channels.deleted_at column yet) to verify live auto-upgrade!
+    const mockD1 = createStrictMockD1({ preInitSchema: false });
+    mockD1.sqlite.exec(D1_INIT_SQL);
+
+    const env: WorkerEnv = {
+      DB: mockD1.d1,
+      LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+      ADMIN_PASSWORD: 'test-password',
+    };
+    const ctx = {
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    const call = (pathUrl: string, init?: RequestInit) =>
+      workerEntry.fetch(new Request(`https://t.vsz.cc${pathUrl}`, init), env, ctx);
+
+    try {
+      const loginRes = await call('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+        body: JSON.stringify({ password: 'test-password' }),
+      });
+      expect(loginRes.status).toBe(200);
+      const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
+      const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'CF-Connecting-IP': '1.2.3.4' };
+
+      // Create channel + reminder
+      const chRes = await call('/api/channels', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: '废弃 Bark 渠道',
+          type: 'bark',
+          enabled: true,
+          config: { serverUrl: 'https://api.day.app', deviceKey: 'secret-device-key' },
+        }),
+      });
+      expect(chRes.status).toBe(201);
+      const channelId = ((await chRes.json()) as { data: { id: string } }).data.id;
+
+      const remRes = await call('/api/reminders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: '测试日志保留',
+          content: '内容',
+          scheduledLocal: '2026-12-01T10:00',
+          timezone: 'Asia/Shanghai',
+          isRepeating: false,
+          repeatEvery: null,
+          repeatUnit: null,
+          channelIds: [channelId],
+          enabled: true,
+        }),
+      });
+      expect(remRes.status).toBe(201);
+      const reminderId = ((await remRes.json()) as { data: { id: string } }).data.id;
+
+      // Insert a failed delivery referencing this channel
+      const now = Date.now();
+      mockD1.sqlite
+        .prepare(
+          `INSERT INTO deliveries (id, event_id, reminder_id, scheduled_at, channel_id, status, attempts, error, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'failed', 1, 'HTTP 500', ?, ?)`,
+        )
+        .run('del-1', 'evt-1', reminderId, now, channelId, now, now);
+
+      // Still bound by an active reminder -> delete MUST be blocked with 409
+      const blockedDel = await call(`/api/channels/${channelId}`, { method: 'DELETE', headers });
+      expect(blockedDel.status).toBe(409);
+
+      // Delete reminder (soft-delete reminder), now channel is ONLY referenced by delivery log -> delete MUST succeed!
+      expect((await call(`/api/reminders/${reminderId}`, { method: 'DELETE', headers })).status).toBe(200);
+      const delRes = await call(`/api/channels/${channelId}`, { method: 'DELETE', headers });
+      expect(delRes.status).toBe(200);
+
+      // Channel disappears from list & credentials scrubbed in DB
+      const listRes = (await (await call('/api/channels', { headers })).json()) as { data: unknown[] };
+      expect(listRes.data).toHaveLength(0);
+      const rawRow = mockD1.sqlite
+        .prepare('SELECT enabled, config, deleted_at FROM channels WHERE id = ?')
+        .get(channelId) as { enabled: number; config: string | null; deleted_at: number | null };
+      expect(rawRow.enabled).toBe(0);
+      expect(rawRow.config).toBeNull();
+      expect(rawRow.deleted_at).not.toBeNull();
+
+      // Delivery log still preserves original channelName & channelType with channelDeleted=true
+      const deliveriesRes = (await (await call('/api/deliveries', { headers })).json()) as {
+        data: { items: Array<{ id: string; channelName: string; channelType: string; channelDeleted: boolean }> };
+      };
+      expect(deliveriesRes.data.items).toHaveLength(1);
+      expect(deliveriesRes.data.items[0]).toMatchObject({
+        id: 'del-1',
+        channelName: '废弃 Bark 渠道',
+        channelType: 'bark',
+        channelDeleted: true,
+      });
+
+      // Manual retry on a deleted channel returns 409
+      const retryRes = await call('/api/deliveries/del-1/retry', { method: 'POST', headers });
+      expect(retryRes.status).toBe(409);
     } finally {
       resetD1SchemaCache();
       mockD1.sqlite.close();
