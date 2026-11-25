@@ -8,6 +8,7 @@ import {
 import { CfRateLimiter } from './cf-ratelimit';
 import { createCfHttpTransport } from './cf-transport';
 import { D1DbAdapter } from './d1-adapter';
+import { ensureD1Schema } from './d1-schema';
 import type { WorkerEnv } from './env';
 
 const APP_VERSION = '2.0.0';
@@ -88,12 +89,35 @@ export function buildWorkerCore(env: WorkerEnv) {
 
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
+    const pathname = new URL(request.url).pathname;
+    if (pathname.startsWith('/api/')) {
+      try {
+        await ensureD1Schema(env.DB);
+      } catch (error) {
+        console.error(
+          JSON.stringify({
+            level: 'error',
+            msg: 'Failed to initialize Cloudflare D1 schema',
+            err: error instanceof Error ? error.message : String(error),
+            path: pathname,
+          }),
+        );
+        return Response.json(
+          { error: '数据库初始化失败，请检查 Cloudflare D1 绑定 (DB)' },
+          { status: 500, headers: { 'Cache-Control': 'no-store' } },
+        );
+      }
+    }
     const { app } = buildWorkerCore(env);
     return app.fetch(request, env, ctx);
   },
 
   scheduled(_controller: ScheduledController, env: WorkerEnv, ctx: ExecutionContext): void {
-    const { scheduler } = buildWorkerCore(env);
-    ctx.waitUntil(scheduler.runTick());
+    ctx.waitUntil(
+      ensureD1Schema(env.DB).then(() => {
+        const { scheduler } = buildWorkerCore(env);
+        return scheduler.runTick();
+      }),
+    );
   },
 };

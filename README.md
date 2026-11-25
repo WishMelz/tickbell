@@ -37,21 +37,35 @@
 
 ### 方式一：Cloudflare 一键部署（零成本、零命令行）
 
-1. 点击页面顶部的 **Deploy to Cloudflare** 按钮，登录并授权克隆仓库到你的 GitHub 账号。
-2. Cloudflare 会自动创建 D1 数据库并执行 `pnpm run deploy`（构建前端 → 按绑定名 `DB` 执行 D1 迁移 → 发布 Worker 与 Cron Trigger）。
-3. 部署完成后打开生成的 `https://<your-worker>.workers.dev` 地址完成首次初始化。
+1. 点击页面顶部的 **Deploy to Cloudflare** 按钮，登录并授权克隆仓库到你的 GitHub 账号（如果你之前已经 Fork 过同名仓库，在页面中改一个仓库名即可）。
+2. Cloudflare 会自动构建前端、创建并绑定 D1 数据库 `tickbell-db`，并发布 Worker 与 Cron Trigger。
+3. 首次访问生成的 `https://<your-worker>.workers.dev` 地址时，Worker 会自动初始化全部 D1 数据表，直接按网页向导完成初始化即可使用。
 
-> **后续更新**：在 GitHub 你的仓库中点击 **Sync fork**，Cloudflare Workers Builds 会自动触发重新构建与发布。
+> **想通过 GitHub `Sync fork` 一键更新上游代码？**  
+> 一键部署按钮创建的是独立克隆仓库（没有 `Sync fork` 按钮）。如果你希望保留 Fork 同步能力，可以直接 **Fork 本仓库**，然后在 Cloudflare 后台 **Workers 和 Pages → 创建 → 导入存储库** 选择你的 Fork，使用默认构建命令（`pnpm run build`）与部署命令（`npx wrangler deploy`）即可——Wrangler 会自动创建 D1 数据库，Worker 首次启动会自动建表，之后只需在 GitHub 点 **Sync fork** 即可自动重新部署。
 
 <details>
-<summary>使用命令行手工部署到 Cloudflare</summary>
+<summary>常见问题：一键部署提示 “You must reinstall the Cloudflare GitHub App to use templates” / 命令行手工部署</summary>
+
+**1. 提示需要重装 Cloudflare GitHub App**
+
+这是旧版 GitHub App 授权缺少模板建仓权限导致，按以下步骤重装即可（不影响已有服务）：
+1. 打开 GitHub [已安装的 GitHub Apps](https://github.com/settings/installations) → 找到 **Cloudflare Workers and Pages** → 点击 **Configure** → 滑到页面最底部 **Uninstall** 卸载。
+2. 回到本页重新点击 **Deploy to Cloudflare** 按钮并重新授权即可。
+
+**2. 使用命令行手工部署到 Cloudflare**
 
 ```bash
 pnpm install
-pnpm exec wrangler d1 create tickbell-db
-# 将返回的 database_id 填入 wrangler.jsonc 的 d1_databases[0].database_id
 pnpm run deploy
 ```
+
+> 首次执行 `pnpm run deploy` 时 Wrangler 会自动创建并绑定 `tickbell-db`，Worker 首次请求时会自动初始化 D1 表结构。
+
+**3. 兜底方案：若因特殊环境仍提示数据库未初始化**
+
+1. 在 Cloudflare 后台进入 **Workers 和 Pages → 你的项目 → 设置 → 绑定**，确认存在变量名为 `DB` 的 D1 数据库绑定。
+2. 打开 **存储和数据库 → D1 SQL 数据库 → 你的数据库 → 控制台**，粘贴执行仓库中 [`migrations/d1/0001_init.sql`](./migrations/d1/0001_init.sql) 的全部 SQL（或本地运行 `pnpm run db:migrate:remote`）即可手动完成建表。
 
 </details>
 

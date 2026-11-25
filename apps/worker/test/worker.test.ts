@@ -2,9 +2,10 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import type { D1Database, RateLimit } from '@cloudflare/workers-types';
+import type { D1Database, ExecutionContext, RateLimit, ScheduledController } from '@cloudflare/workers-types';
 import { describe, expect, it, vi } from 'vitest';
-import { buildWorkerCore } from '../src/index';
+import { D1_SCHEMA_STATEMENTS, resetD1SchemaCache } from '../src/d1-schema';
+import workerEntry, { buildWorkerCore } from '../src/index';
 import type { WorkerEnv } from '../src/env';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,10 +24,12 @@ function isReaderSql(sql: string): boolean {
  * Strict D1 mock backed by Node's built-in in-memory `node:sqlite` (zero native C++ deps)
  * that enforces Cloudflare D1's hard 100 bound-parameter limit per SQL statement and tracks D1 query count.
  */
-function createStrictMockD1() {
+function createStrictMockD1(options: { preInitSchema?: boolean } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(D1_INIT_SQL);
+  if (options.preInitSchema !== false) {
+    sqlite.exec(D1_INIT_SQL);
+  }
 
   let queryCount = 0;
 
@@ -356,6 +359,153 @@ describe('Cloudflare Worker + strict D1 100-param integration', () => {
       });
       expect(statusRes.status).toBe(200);
     } finally {
+      mockD1.sqlite.close();
+    }
+  });
+
+  it('keeps D1_SCHEMA_STATEMENTS in exact sync with migrations/d1/0001_init.sql', () => {
+    const stripComments = (sql: string) =>
+      sql
+        .split(/\r?\n/)
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n');
+    const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
+
+    const migrationStatements = stripComments(D1_INIT_SQL)
+      .split(';')
+      .map((s) => normalize(s))
+      .filter(Boolean);
+    const runtimeStatements = D1_SCHEMA_STATEMENTS.map((s) => normalize(s));
+
+    expect(runtimeStatements).toEqual(migrationStatements);
+  });
+
+  it('auto-bootstraps schema on a brand-new empty D1 database for both fetch() and scheduled()', async () => {
+    resetD1SchemaCache();
+    const mockD1 = createStrictMockD1({ preInitSchema: false });
+    const env: WorkerEnv = {
+      DB: mockD1.d1,
+      LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+    };
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => {
+        waitUntilPromises.push(p);
+      },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    try {
+      // 1. First API request on a completely empty D1 DB succeeds without manual migrations
+      const statusRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), env, ctx);
+      expect(statusRes.status).toBe(200);
+      const statusBody = (await statusRes.json()) as {
+        data: { runtime: string; initialized: boolean; authenticated: boolean };
+      };
+      expect(statusBody.data).toMatchObject({
+        runtime: 'cloudflare',
+        initialized: false,
+        authenticated: false,
+      });
+
+      // 2. Subsequent requests skip schema check entirely (cached per isolate)
+      mockD1.resetQueryCount();
+      const statusRes2 = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), env, ctx);
+      expect(statusRes2.status).toBe(200);
+      // Only settings lookups from auth.isInitialized + getConfigurationIssue (no sqlite_master / batch)
+      expect(mockD1.getQueryCount()).toBeLessThanOrEqual(2);
+
+      // 3. Setup works immediately on the auto-bootstrapped database
+      const setupRes = await workerEntry.fetch(
+        new Request('https://t.vsz.cc/api/auth/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+          body: JSON.stringify({
+            password: 'auto-init-password',
+            secret: '0123456789abcdef0123456789abcdef',
+            globalTimezone: 'Asia/Shanghai',
+          }),
+        }),
+        env,
+        ctx,
+      );
+      expect(setupRes.status).toBe(200);
+
+      // 4. scheduled() also bootstraps cleanly on a fresh empty D1 DB
+      resetD1SchemaCache();
+      const freshCronD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const cronEnv: WorkerEnv = {
+          DB: freshCronD1.d1,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        workerEntry.scheduled({} as ScheduledController, cronEnv, ctx);
+        await Promise.all(waitUntilPromises);
+
+        const healthRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/health'), cronEnv, ctx);
+        expect(healthRes.status).toBe(200);
+        const healthBody = (await healthRes.json()) as { data: { status: string; db: string } };
+        expect(healthBody.data.status).toBe('ok');
+        expect(healthBody.data.db).toBe('ok');
+      } finally {
+        freshCronD1.sqlite.close();
+      }
+
+      // 5. Fallback A: if db.batch() fails during DDL init, falls back to sequential .run()
+      resetD1SchemaCache();
+      const seqFallbackD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const flakyBatchDb = {
+          prepare: seqFallbackD1.d1.prepare.bind(seqFallbackD1.d1),
+          batch: async () => {
+            throw new Error('D1_ERROR: batch DDL unavailable');
+          },
+        } as unknown as D1Database;
+        const fallbackEnv: WorkerEnv = {
+          DB: flakyBatchDb,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        const res = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), fallbackEnv, ctx);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { data: { initialized: boolean } };
+        expect(body.data.initialized).toBe(false);
+      } finally {
+        seqFallbackD1.sqlite.close();
+      }
+
+      // 6. Fallback B: warm isolate self-heals transparently if tables are dropped externally
+      resetD1SchemaCache();
+      const selfHealD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const healEnv: WorkerEnv = {
+          DB: selfHealD1.d1,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        // Prime warm isolate cache
+        const first = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), healEnv, ctx);
+        expect(first.status).toBe(200);
+        // Simulate external wipe of settings table while isolate stays warm
+        selfHealD1.sqlite.exec('DROP TABLE settings');
+        const healed = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), healEnv, ctx);
+        expect(healed.status).toBe(200);
+        const healedBody = (await healed.json()) as { data: { initialized: boolean } };
+        expect(healedBody.data.initialized).toBe(false);
+      } finally {
+        selfHealD1.sqlite.close();
+      }
+
+      // 7. Missing DB binding returns explicit 500 JSON error without poisoning cache
+      resetD1SchemaCache();
+      const brokenEnv = {
+        DB: undefined as unknown as D1Database,
+        LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+      };
+      const brokenRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), brokenEnv, ctx);
+      expect(brokenRes.status).toBe(500);
+      const brokenBody = (await brokenRes.json()) as { error: string };
+      expect(brokenBody.error).toContain('D1');
+    } finally {
+      resetD1SchemaCache();
       mockD1.sqlite.close();
     }
   });
