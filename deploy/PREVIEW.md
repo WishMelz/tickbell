@@ -14,6 +14,23 @@
 | **高危操作禁用** | 禁用修改管理密码、网络代理管理、全量备份导出/导入、本地自动备份与历史日志重发（后端统一返回 `403`） | 固定禁用 |
 | **定时自动重置** | 每天 **03:00（Asia/Shanghai）** 自动清空并恢复预置示例渠道、提醒与日志 | `DEMO_RESET_CRON="0 3 * * *"`<br>`DEMO_RESET_TIMEZONE="Asia/Shanghai"` |
 
+## 服务器 Docker 部署（推荐，自动同步预构建镜像）
+
+每次推送 `preview` 分支时，GitHub Actions 会自动构建 `linux/amd64` + `linux/arm64` 多架构镜像并推送至 `wishmelz/tickbell:preview`。
+
+在测试服务器上只需一份 [`deploy/docker-compose.preview.yml`](./docker-compose.preview.yml)：
+
+```bash
+mkdir -p ./data && chown -R 1000:1000 ./data
+docker compose -f docker-compose.preview.yml up -d
+```
+
+后续更新镜像：
+
+```bash
+docker compose -f docker-compose.preview.yml pull && docker compose -f docker-compose.preview.yml up -d
+```
+
 ## 服务器源码部署（Linux）
 
 环境要求：Node.js 22+、pnpm 10+。

@@ -1,0 +1,37 @@
+# TickBell Preview 演示版 Docker Compose（无需拉源码，直接拉取 wishmelz/tickbell:preview）
+#
+# 首次部署（Linux 服务器）：
+#   mkdir -p ./data && chown -R 1000:1000 ./data
+#   docker compose -f docker-compose.preview.yml up -d
+#
+# 后续更新：
+#   docker compose -f docker-compose.preview.yml pull && docker compose -f docker-compose.preview.yml up -d
+
+services:
+  tickbell-preview:
+    image: wishmelz/tickbell:preview
+    container_name: tickbell-preview
+    restart: unless-stopped
+    ports:
+      # 宿主机端口:容器端口（若同机有 Nginx / Caddy / 1Panel 反代，可改为 "127.0.0.1:3000:3000"）
+      - "0.0.0.0:${PORT:-3000}:3000"
+    volumes:
+      - ./data:/data
+    environment:
+      PORT: "3000"
+      DB_PATH: "/data/tickbell-demo.db"
+      TRUST_PROXY: "true"
+      COOKIE_SECURE: "auto"
+      DEMO_MODE: "true"
+      DEMO_PASSWORD: "${DEMO_PASSWORD:-tickbell123}"
+      DEMO_MAX_REMINDERS: "${DEMO_MAX_REMINDERS:-30}"
+      DEMO_MAX_CHANNELS: "${DEMO_MAX_CHANNELS:-10}"
+      DEMO_MAX_TEST_CHANNELS: "${DEMO_MAX_TEST_CHANNELS:-3}"
+      DEMO_TEST_RATE_LIMIT: "${DEMO_TEST_RATE_LIMIT:-10}"
+      DEMO_RESET_CRON: "${DEMO_RESET_CRON:-0 3 * * *}"
+      DEMO_RESET_TIMEZONE: "${DEMO_RESET_TIMEZONE:-Asia/Shanghai}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
