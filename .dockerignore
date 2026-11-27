@@ -1,5 +1,6 @@
 # 排除版本控制、本地依赖、构建产物与数据文件，防止覆盖容器内 Linux 原生模块或泄露本地数据库
 .git
+.github
 .gitignore
 .wrangler
 .dev.vars
