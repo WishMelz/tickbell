@@ -271,9 +271,13 @@ export class ChannelsService {
   async delete(id: string): Promise<void> {
     const existing = await this.repo.findById(id);
     if (!existing) throw notFound('通知渠道不存在');
-    const { reminderCount, deliveryCount } = await this.repo.usageCounts(id);
-    if (reminderCount > 0 || deliveryCount > 0) {
-      throw conflict('该渠道已被提醒或发送日志引用，不能删除；可以改为停用');
+    const { activeReminderCount, deliveryCount } = await this.repo.usageCounts(id);
+    if (activeReminderCount > 0) {
+      throw conflict('该渠道仍被未删除的提醒引用，请先解除提醒绑定后再删除，或改为停用');
+    }
+    if (deliveryCount > 0) {
+      await this.repo.softDelete(id, Date.now());
+      return;
     }
     await this.repo.delete(id);
   }

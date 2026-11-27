@@ -2,13 +2,18 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
 import { fileURLToPath } from 'node:url';
-import type { D1Database, RateLimit } from '@cloudflare/workers-types';
+import type { D1Database, ExecutionContext, RateLimit, ScheduledController } from '@cloudflare/workers-types';
 import { describe, expect, it, vi } from 'vitest';
-import { buildWorkerCore } from '../src/index';
+import { D1_SCHEMA_STATEMENTS, resetD1SchemaCache } from '../src/d1-schema';
+import workerEntry, { buildWorkerCore } from '../src/index';
 import type { WorkerEnv } from '../src/env';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const D1_INIT_SQL = fs.readFileSync(path.resolve(__dirname, '../../../migrations/d1/0001_init.sql'), 'utf8');
+const D1_MIGRATION_0002_SQL = fs.readFileSync(
+  path.resolve(__dirname, '../../../migrations/d1/0002_channel_soft_delete.sql'),
+  'utf8',
+);
 
 function toSqlParams(params: unknown[]): SQLInputValue[] {
   return params as SQLInputValue[];
@@ -23,10 +28,13 @@ function isReaderSql(sql: string): boolean {
  * Strict D1 mock backed by Node's built-in in-memory `node:sqlite` (zero native C++ deps)
  * that enforces Cloudflare D1's hard 100 bound-parameter limit per SQL statement and tracks D1 query count.
  */
-function createStrictMockD1() {
+function createStrictMockD1(options: { preInitSchema?: boolean } = {}) {
   const sqlite = new DatabaseSync(':memory:');
   sqlite.exec('PRAGMA foreign_keys = ON');
-  sqlite.exec(D1_INIT_SQL);
+  if (options.preInitSchema !== false) {
+    sqlite.exec(D1_INIT_SQL);
+    sqlite.exec(D1_MIGRATION_0002_SQL);
+  }
 
   let queryCount = 0;
 
@@ -258,26 +266,17 @@ describe('Cloudflare Worker + strict D1 100-param integration', () => {
       body: JSON.stringify({
         backup: snapshot,
         password: 'cf-admin-password',
-        confirmation: 'RESTORE',
       }),
     });
     expect(restoreRes.status).toBe(200);
     expect(mockD1.getQueryCount()).toBeLessThanOrEqual(10);
 
-    // Re-login after restore (session generation rotated)
-    const loginRes = await req('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
-      body: JSON.stringify({ password: 'cf-admin-password' }),
-    });
-    expect(loginRes.status).toBe(200);
-    const newCookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
-
+    // Existing session MUST remain valid after restore (no forced re-login)
     // 5. Budgeted Cron Tick test: enable 25 reminders and make them due at `now`
     const first25 = createdIds.slice(0, 25);
     const batchEnable = await req('/api/reminders/batch', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', Cookie: newCookie },
+      headers: authedHeaders,
       body: JSON.stringify({ ids: first25, action: 'enable' }),
     });
     expect(batchEnable.status).toBe(200);
@@ -356,6 +355,263 @@ describe('Cloudflare Worker + strict D1 100-param integration', () => {
       });
       expect(statusRes.status).toBe(200);
     } finally {
+      mockD1.sqlite.close();
+    }
+  });
+
+  it('keeps D1_SCHEMA_STATEMENTS in exact sync with migrations/d1/0001_init.sql', () => {
+    const stripComments = (sql: string) =>
+      sql
+        .split(/\r?\n/)
+        .filter((line) => !line.trim().startsWith('--'))
+        .join('\n');
+    const normalize = (sql: string) => sql.replace(/\s+/g, ' ').trim();
+
+    const migrationStatements = stripComments(D1_INIT_SQL)
+      .split(';')
+      .map((s) => normalize(s))
+      .filter(Boolean);
+    const runtimeStatements = D1_SCHEMA_STATEMENTS.map((s) => normalize(s));
+
+    expect(runtimeStatements).toEqual(migrationStatements);
+  });
+
+  it('auto-bootstraps schema on a brand-new empty D1 database for both fetch() and scheduled()', async () => {
+    resetD1SchemaCache();
+    const mockD1 = createStrictMockD1({ preInitSchema: false });
+    const env: WorkerEnv = {
+      DB: mockD1.d1,
+      LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+    };
+    const waitUntilPromises: Promise<unknown>[] = [];
+    const ctx = {
+      waitUntil: (p: Promise<unknown>) => {
+        waitUntilPromises.push(p);
+      },
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    try {
+      // 1. First API request on a completely empty D1 DB succeeds without manual migrations
+      const statusRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), env, ctx);
+      expect(statusRes.status).toBe(200);
+      const statusBody = (await statusRes.json()) as {
+        data: { runtime: string; initialized: boolean; authenticated: boolean };
+      };
+      expect(statusBody.data).toMatchObject({
+        runtime: 'cloudflare',
+        initialized: false,
+        authenticated: false,
+      });
+
+      // 2. Subsequent requests skip schema check entirely (cached per isolate)
+      mockD1.resetQueryCount();
+      const statusRes2 = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), env, ctx);
+      expect(statusRes2.status).toBe(200);
+      // Only settings lookups from auth.isInitialized + getConfigurationIssue (no sqlite_master / batch)
+      expect(mockD1.getQueryCount()).toBeLessThanOrEqual(2);
+
+      // 3. Setup works immediately on the auto-bootstrapped database
+      const setupRes = await workerEntry.fetch(
+        new Request('https://t.vsz.cc/api/auth/setup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+          body: JSON.stringify({
+            password: 'auto-init-password',
+            secret: '0123456789abcdef0123456789abcdef',
+            globalTimezone: 'Asia/Shanghai',
+          }),
+        }),
+        env,
+        ctx,
+      );
+      expect(setupRes.status).toBe(200);
+
+      // 4. scheduled() also bootstraps cleanly on a fresh empty D1 DB
+      resetD1SchemaCache();
+      const freshCronD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const cronEnv: WorkerEnv = {
+          DB: freshCronD1.d1,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        workerEntry.scheduled({} as ScheduledController, cronEnv, ctx);
+        await Promise.all(waitUntilPromises);
+
+        const healthRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/health'), cronEnv, ctx);
+        expect(healthRes.status).toBe(200);
+        const healthBody = (await healthRes.json()) as { data: { status: string; db: string } };
+        expect(healthBody.data.status).toBe('ok');
+        expect(healthBody.data.db).toBe('ok');
+      } finally {
+        freshCronD1.sqlite.close();
+      }
+
+      // 5. Fallback A: if db.batch() fails during DDL init, falls back to sequential .run()
+      resetD1SchemaCache();
+      const seqFallbackD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const flakyBatchDb = {
+          prepare: seqFallbackD1.d1.prepare.bind(seqFallbackD1.d1),
+          batch: async () => {
+            throw new Error('D1_ERROR: batch DDL unavailable');
+          },
+        } as unknown as D1Database;
+        const fallbackEnv: WorkerEnv = {
+          DB: flakyBatchDb,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        const res = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), fallbackEnv, ctx);
+        expect(res.status).toBe(200);
+        const body = (await res.json()) as { data: { initialized: boolean } };
+        expect(body.data.initialized).toBe(false);
+      } finally {
+        seqFallbackD1.sqlite.close();
+      }
+
+      // 6. Fallback B: warm isolate self-heals transparently if tables are dropped externally
+      resetD1SchemaCache();
+      const selfHealD1 = createStrictMockD1({ preInitSchema: false });
+      try {
+        const healEnv: WorkerEnv = {
+          DB: selfHealD1.d1,
+          LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+        };
+        // Prime warm isolate cache
+        const first = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), healEnv, ctx);
+        expect(first.status).toBe(200);
+        // Simulate external wipe of settings table while isolate stays warm
+        selfHealD1.sqlite.exec('DROP TABLE settings');
+        const healed = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), healEnv, ctx);
+        expect(healed.status).toBe(200);
+        const healedBody = (await healed.json()) as { data: { initialized: boolean } };
+        expect(healedBody.data.initialized).toBe(false);
+      } finally {
+        selfHealD1.sqlite.close();
+      }
+
+      // 7. Missing DB binding returns explicit 500 JSON error without poisoning cache
+      resetD1SchemaCache();
+      const brokenEnv = {
+        DB: undefined as unknown as D1Database,
+        LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+      };
+      const brokenRes = await workerEntry.fetch(new Request('https://t.vsz.cc/api/auth/status'), brokenEnv, ctx);
+      expect(brokenRes.status).toBe(500);
+      const brokenBody = (await brokenRes.json()) as { error: string };
+      expect(brokenBody.error).toContain('D1');
+    } finally {
+      resetD1SchemaCache();
+      mockD1.sqlite.close();
+    }
+  });
+
+  it('allows soft-deleting channels referenced only by delivery logs while preserving log history and auto-upgrades 0001-only D1 DBs', async () => {
+    resetD1SchemaCache();
+    // Start with a legacy 0001-only DB (no channels.deleted_at column yet) to verify live auto-upgrade!
+    const mockD1 = createStrictMockD1({ preInitSchema: false });
+    mockD1.sqlite.exec(D1_INIT_SQL);
+
+    const env: WorkerEnv = {
+      DB: mockD1.d1,
+      LOGIN_RATE_LIMITER: createMockRateLimiter(20),
+      ADMIN_PASSWORD: 'test-password',
+    };
+    const ctx = {
+      waitUntil: () => {},
+      passThroughOnException: () => {},
+    } as unknown as ExecutionContext;
+
+    const call = (pathUrl: string, init?: RequestInit) =>
+      workerEntry.fetch(new Request(`https://t.vsz.cc${pathUrl}`, init), env, ctx);
+
+    try {
+      const loginRes = await call('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'CF-Connecting-IP': '1.2.3.4' },
+        body: JSON.stringify({ password: 'test-password' }),
+      });
+      expect(loginRes.status).toBe(200);
+      const cookie = (loginRes.headers.get('set-cookie') ?? '').split(';')[0]!;
+      const headers = { 'Content-Type': 'application/json', Cookie: cookie, 'CF-Connecting-IP': '1.2.3.4' };
+
+      // Create channel + reminder
+      const chRes = await call('/api/channels', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          name: '废弃 Bark 渠道',
+          type: 'bark',
+          enabled: true,
+          config: { serverUrl: 'https://api.day.app', deviceKey: 'secret-device-key' },
+        }),
+      });
+      expect(chRes.status).toBe(201);
+      const channelId = ((await chRes.json()) as { data: { id: string } }).data.id;
+
+      const remRes = await call('/api/reminders', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          title: '测试日志保留',
+          content: '内容',
+          scheduledLocal: '2026-12-01T10:00',
+          timezone: 'Asia/Shanghai',
+          isRepeating: false,
+          repeatEvery: null,
+          repeatUnit: null,
+          channelIds: [channelId],
+          enabled: true,
+        }),
+      });
+      expect(remRes.status).toBe(201);
+      const reminderId = ((await remRes.json()) as { data: { id: string } }).data.id;
+
+      // Insert a failed delivery referencing this channel
+      const now = Date.now();
+      mockD1.sqlite
+        .prepare(
+          `INSERT INTO deliveries (id, event_id, reminder_id, scheduled_at, channel_id, status, attempts, error, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, 'failed', 1, 'HTTP 500', ?, ?)`,
+        )
+        .run('del-1', 'evt-1', reminderId, now, channelId, now, now);
+
+      // Still bound by an active reminder -> delete MUST be blocked with 409
+      const blockedDel = await call(`/api/channels/${channelId}`, { method: 'DELETE', headers });
+      expect(blockedDel.status).toBe(409);
+
+      // Delete reminder (soft-delete reminder), now channel is ONLY referenced by delivery log -> delete MUST succeed!
+      expect((await call(`/api/reminders/${reminderId}`, { method: 'DELETE', headers })).status).toBe(200);
+      const delRes = await call(`/api/channels/${channelId}`, { method: 'DELETE', headers });
+      expect(delRes.status).toBe(200);
+
+      // Channel disappears from list & credentials scrubbed in DB
+      const listRes = (await (await call('/api/channels', { headers })).json()) as { data: unknown[] };
+      expect(listRes.data).toHaveLength(0);
+      const rawRow = mockD1.sqlite
+        .prepare('SELECT enabled, config, deleted_at FROM channels WHERE id = ?')
+        .get(channelId) as { enabled: number; config: string | null; deleted_at: number | null };
+      expect(rawRow.enabled).toBe(0);
+      expect(rawRow.config).toBeNull();
+      expect(rawRow.deleted_at).not.toBeNull();
+
+      // Delivery log still preserves original channelName & channelType with channelDeleted=true
+      const deliveriesRes = (await (await call('/api/deliveries', { headers })).json()) as {
+        data: { items: Array<{ id: string; channelName: string; channelType: string; channelDeleted: boolean }> };
+      };
+      expect(deliveriesRes.data.items).toHaveLength(1);
+      expect(deliveriesRes.data.items[0]).toMatchObject({
+        id: 'del-1',
+        channelName: '废弃 Bark 渠道',
+        channelType: 'bark',
+        channelDeleted: true,
+      });
+
+      // Manual retry on a deleted channel returns 409
+      const retryRes = await call('/api/deliveries/del-1/retry', { method: 'POST', headers });
+      expect(retryRes.status).toBe(409);
+    } finally {
+      resetD1SchemaCache();
       mockD1.sqlite.close();
     }
   });

@@ -263,6 +263,7 @@ export interface DeliveryView {
   channelId: string;
   channelName: string;
   channelType: string;
+  channelDeleted?: boolean;
   status: DeliveryStatus;
   attempts: number;
   nextRetryAt: string | null;

@@ -19,7 +19,7 @@
     "build": "pnpm run build:web",
     "build:all": "pnpm run build:web && pnpm run build:node",
     "start:preview": "pnpm run build:all && pnpm --filter tickbell-node start",
-    "deploy": "pnpm --filter tickbell-web build && wrangler d1 migrations apply DB --remote && wrangler deploy",
+    "deploy": "pnpm --filter tickbell-web build && wrangler deploy",
     "db:migrate:local": "wrangler d1 migrations apply DB --local",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote",
     "typecheck": "pnpm --filter @tickbell/core typecheck && pnpm --filter tickbell-worker typecheck && pnpm --filter tickbell-node typecheck && pnpm --filter tickbell-web typecheck",

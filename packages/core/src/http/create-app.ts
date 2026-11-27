@@ -473,11 +473,7 @@ export function createCoreApp(deps: CreateCoreAppDeps): CoreAppBundle {
     if (!password || !(await auth.verifyPassword(password))) {
       throw new ValidationError('管理密码错误');
     }
-    if (body?.confirmation !== 'RESTORE') {
-      throw new ValidationError('请输入 RESTORE 确认覆盖恢复');
-    }
     await backup.restore(body?.backup);
-    clearSessionCookie(c);
     return c.json({ data: { restored: true } });
   });
 

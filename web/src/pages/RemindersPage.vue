@@ -370,7 +370,13 @@ function isChannelAbnormal(id: string): boolean {
   return Boolean(!ch || !ch.supported || !ch.enabled || !ch.configured);
 }
 
-function channelDotColor(id: string): string {
+function channelBrandIcon(id: string): string {
+  const ch = channelMap.value.get(id);
+  if (!ch) return icons.warning;
+  return channelBrand(ch.type).icon;
+}
+
+function channelIconColor(id: string): string {
   const ch = channelMap.value.get(id);
   if (!ch) return 'var(--app-text-3)';
   if (!ch.supported || !ch.enabled || !ch.configured) return 'var(--q-warning)';
@@ -602,7 +608,12 @@ function tooltipContent(text: string): string {
               class="tag-pill channel-pill"
               :class="{ 'channel-pill--warn': isChannelAbnormal(cid) || isChannelUnsupported(cid) }"
             >
-              <span class="channel-dot" :style="{ background: channelDotColor(cid) }" />
+              <q-icon
+                class="channel-pill-icon"
+                :name="channelBrandIcon(cid)"
+                size="14px"
+                :style="{ color: channelIconColor(cid) }"
+              />
               <span class="channel-pill-text">{{ channelName(cid) }}</span>
               <q-tooltip anchor="top middle" self="bottom middle" :offset="[0, 6]" :delay="200">
                 {{ channelTooltipLine(cid) }}
@@ -747,7 +758,12 @@ function tooltipContent(text: string): string {
                   class="tag-pill channel-pill"
                   :class="{ 'channel-pill--warn': isChannelAbnormal(cid) }"
                 >
-                  <span class="channel-dot" :style="{ background: channelDotColor(cid) }" />
+                  <q-icon
+                    class="channel-pill-icon"
+                    :name="channelBrandIcon(cid)"
+                    size="13px"
+                    :style="{ color: channelIconColor(cid) }"
+                  />
                   <span class="channel-pill-text">{{ channelName(cid) }}</span>
                 </span>
                 <span v-if="hiddenChannels(item.channelIds, 2).length" class="tag-pill tag-pill--more">
@@ -926,20 +942,17 @@ function tooltipContent(text: string): string {
 .channel-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   max-width: 156px;
   min-width: 0;
-  padding: 2px 8px;
+  padding: 2px 8px 2px 6px;
   font-size: 12px;
 }
 .channel-pill--warn {
   border-color: color-mix(in srgb, var(--q-warning) 45%, transparent);
   color: color-mix(in srgb, var(--q-warning) 85%, var(--app-text));
 }
-.channel-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
+.channel-pill-icon {
   flex-shrink: 0;
 }
 .channel-pill-text {

@@ -106,7 +106,7 @@ async function handleTest(channel: ChannelView): Promise<void> {
 async function handleDelete(channel: ChannelView): Promise<void> {
   const ok = await confirmDialog({
     title: '删除通知渠道',
-    message: `确定删除渠道“${channel.name}”吗？如已被提醒或日志引用则无法删除。`,
+    message: `确定删除渠道“${channel.name}”吗？若仍有提醒绑定需先解除；历史发送日志仍会保留原渠道名称。`,
     okLabel: '删除',
     danger: true,
   });

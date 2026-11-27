@@ -8,6 +8,7 @@ export interface ChannelRow {
   enabled: number;
   config: string | null;
   proxy_id: string | null;
+  deleted_at?: number | null;
   created_at: number;
   updated_at: number;
 }
@@ -17,22 +18,24 @@ export class ChannelsRepository {
 
   async findAll(): Promise<ChannelRow[]> {
     return this.db.all<ChannelRow>({
-      sql: 'SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels ORDER BY created_at ASC, name ASC',
+      sql: 'SELECT id, name, type, enabled, config, proxy_id, deleted_at, created_at, updated_at FROM channels WHERE deleted_at IS NULL ORDER BY created_at ASC, name ASC',
     });
   }
 
-  async findById(id: string): Promise<ChannelRow | null> {
+  async findById(id: string, includeDeleted = false): Promise<ChannelRow | null> {
     return this.db.first<ChannelRow>({
-      sql: 'SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels WHERE id = ?',
+      sql: includeDeleted
+        ? 'SELECT id, name, type, enabled, config, proxy_id, deleted_at, created_at, updated_at FROM channels WHERE id = ?'
+        : 'SELECT id, name, type, enabled, config, proxy_id, deleted_at, created_at, updated_at FROM channels WHERE id = ? AND deleted_at IS NULL',
       params: [id],
     });
   }
 
-  async findByIds(ids: readonly string[]): Promise<ChannelRow[]> {
+  async findByIds(ids: readonly string[], includeDeleted = false): Promise<ChannelRow[]> {
     if (!ids.length) return [];
     const stmts = buildChunkedInStatements(
-      'SELECT id, name, type, enabled, config, proxy_id, created_at, updated_at FROM channels WHERE id IN ',
-      '',
+      'SELECT id, name, type, enabled, config, proxy_id, deleted_at, created_at, updated_at FROM channels WHERE id IN ',
+      includeDeleted ? '' : ' AND deleted_at IS NULL',
       ids,
       this.db.maxBindParams,
     );
@@ -42,7 +45,7 @@ export class ChannelsRepository {
 
   async countAll(): Promise<number> {
     const row = await this.db.first<{ count: number }>({
-      sql: 'SELECT COUNT(*) AS count FROM channels',
+      sql: 'SELECT COUNT(*) AS count FROM channels WHERE deleted_at IS NULL',
     });
     return Number(row?.count ?? 0);
   }
@@ -69,30 +72,61 @@ export class ChannelsRepository {
     fields: { name: string; enabled: number; config: string | null; proxy_id: string | null; updated_at: number },
   ): Promise<boolean> {
     const info = await this.db.run({
-      sql: 'UPDATE channels SET name = ?, enabled = ?, config = ?, proxy_id = ?, updated_at = ? WHERE id = ?',
+      sql: 'UPDATE channels SET name = ?, enabled = ?, config = ?, proxy_id = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL',
       params: [fields.name, fields.enabled, fields.config, fields.proxy_id, fields.updated_at, id],
     });
     return info.changes > 0;
   }
 
-  async usageCounts(id: string): Promise<{ reminderCount: number; deliveryCount: number }> {
-    const row = await this.db.first<{ reminder_count: number; delivery_count: number }>({
+  async usageCounts(id: string): Promise<{ activeReminderCount: number; deliveryCount: number }> {
+    const row = await this.db.first<{ active_reminder_count: number; delivery_count: number }>({
       sql: `SELECT
-              (SELECT COUNT(*) FROM reminder_channels WHERE channel_id = ?) AS reminder_count,
+              (SELECT COUNT(*)
+               FROM reminder_channels rc
+               JOIN reminders r ON r.id = rc.reminder_id
+               WHERE rc.channel_id = ? AND r.deleted_at IS NULL) AS active_reminder_count,
               (SELECT COUNT(*) FROM deliveries WHERE channel_id = ?) AS delivery_count`,
       params: [id, id],
     });
     return {
-      reminderCount: Number(row?.reminder_count ?? 0),
+      activeReminderCount: Number(row?.active_reminder_count ?? 0),
       deliveryCount: Number(row?.delivery_count ?? 0),
     };
   }
 
+  /**
+   * Soft-deletes a channel that still has historical delivery logs:
+   * scrubs credentials (`config = NULL`), releases `proxy_id`, disables it, and clears stale links
+   * from already soft-deleted reminders while preserving `name`/`type` for delivery log display.
+   */
+  async softDelete(id: string, now: number): Promise<boolean> {
+    const results = await this.db.batch([
+      {
+        sql: 'DELETE FROM reminder_channels WHERE channel_id = ?',
+        params: [id],
+      },
+      {
+        sql: `UPDATE channels
+              SET deleted_at = ?, enabled = 0, config = NULL, proxy_id = NULL, updated_at = ?
+              WHERE id = ? AND deleted_at IS NULL`,
+        params: [now, now, id],
+      },
+    ]);
+    return (results[1]?.changes ?? 0) > 0;
+  }
+
+  /** Hard-deletes a channel with no active reminders and no historical delivery logs. */
   async delete(id: string): Promise<boolean> {
-    const info = await this.db.run({
-      sql: 'DELETE FROM channels WHERE id = ?',
-      params: [id],
-    });
-    return info.changes > 0;
+    const results = await this.db.batch([
+      {
+        sql: 'DELETE FROM reminder_channels WHERE channel_id = ?',
+        params: [id],
+      },
+      {
+        sql: 'DELETE FROM channels WHERE id = ?',
+        params: [id],
+      },
+    ]);
+    return (results[1]?.changes ?? 0) > 0;
   }
 }

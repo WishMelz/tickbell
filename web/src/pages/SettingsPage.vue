@@ -321,7 +321,12 @@ async function handleLogout(): Promise<void> {
       <ProxySection v-if="sysStatus && supportsProxies" ref="proxySectionRef" />
 
       <!-- 备份与恢复（非演示模式） -->
-      <BackupSection v-if="sysStatus && !isDemo" ref="backupSectionRef" :disk-auto-backup="supportsDiskAutoBackup" />
+      <BackupSection
+        v-if="sysStatus && !isDemo"
+        ref="backupSectionRef"
+        :disk-auto-backup="supportsDiskAutoBackup"
+        @restored="loadAll(true)"
+      />
 
       <!-- 移动端退出登录按钮 -->
       <div v-if="isMobile" class="q-pt-xs">

@@ -23,6 +23,7 @@ export interface DeliveryView {
   channelId: string;
   channelName: string;
   channelType: string;
+  channelDeleted: boolean;
   status: DeliveryStatus;
   attempts: number;
   nextRetryAt: string | null;
@@ -64,6 +65,7 @@ export class DeliveriesService {
       channelId: row.channel_id,
       channelName: row.channel_name,
       channelType: row.channel_type,
+      channelDeleted: row.channel_deleted_at !== null && row.channel_deleted_at !== undefined,
       status: row.status,
       attempts: row.attempts,
       nextRetryAt: row.next_retry_at ? epochToIso(row.next_retry_at) : null,
@@ -236,6 +238,9 @@ export class DeliveriesService {
     if (!existing) throw notFound('发送日志不存在');
     if (existing.status !== 'failed') {
       throw conflict('只有失败状态的投递才能手动重试');
+    }
+    if (existing.channel_deleted_at !== null && existing.channel_deleted_at !== undefined) {
+      throw conflict('该投递关联的通知渠道已删除，无法重试');
     }
 
     const reminder = await this.remindersRepo.findById(existing.reminder_id, true);
